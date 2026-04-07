@@ -19,15 +19,27 @@ if not files:
     st.error("No Excel files found in data folder")
     st.stop()
 
-file_names = [os.path.basename(f) for f in files]
-selected_name = st.sidebar.selectbox("Select Report", file_names)
-selected_file = dict(zip(file_names, files))[selected_name]
+# =================================================
+# ✅ Clean display name for Select Report
+# Error_Count_Diff_P173_vs_261E0_NAR.xlsx
+# → P173_vs_261E0_NAR
+# =================================================
+def clean_report_name(filename: str) -> str:
+    name = filename.replace("Error_Count_Diff_", "")
+    name = name.replace(".xlsx", "")
+    return name
+
+display_names = [clean_report_name(os.path.basename(f)) for f in files]
+display_to_file = dict(zip(display_names, files))
+
+selected_display = st.sidebar.selectbox("Select Report", display_names)
+selected_file = display_to_file[selected_display]
 
 df = pd.read_excel(selected_file)
-st.write(f"### ✅ Loaded Report: **{selected_name}**")
+st.write(f"### ✅ Loaded Report: **{selected_display}**")
 
 # =================================================
-# Detect old/new columns
+# Detect old/new status & error columns
 # =================================================
 status_cols = [c for c in df.columns if "_" in c and not c.endswith("_errors")]
 error_cols = [c for c in df.columns if c.endswith("_errors")]
@@ -78,7 +90,7 @@ c4.metric("No Change", (df["diff"] == 0).sum())
 
 valid_pct = df.dropna(subset=["diff_percent"])
 worst = valid_pct.loc[valid_pct["diff_percent"].idxmax()] if not valid_pct.empty else None
-best  = valid_pct.loc[valid_pct["diff_percent"].idxmin()] if not valid_pct.empty else None
+best = valid_pct.loc[valid_pct["diff_percent"].idxmin()] if not valid_pct.empty else None
 
 if "highlight" not in st.session_state:
     st.session_state.highlight = None
@@ -148,14 +160,18 @@ st.subheader("📋 Diff Table")
 st.dataframe(view.style.map(color_diff, subset=["diff"]), use_container_width=True)
 
 # =================================================
-# ✅ 🔥 Top 20 Major Regressions
+# ✅ Top 20 Major Regressions
 # =================================================
 st.subheader("🔥 Top 20 Major Regressions (diff% > 10%)")
-major = df[df["Severity"] == "Major Regression"].sort_values("diff_percent", ascending=False).head(20)
+major = (
+    df[df["Severity"] == "Major Regression"]
+    .sort_values("diff_percent", ascending=False)
+    .head(20)
+)
 st.dataframe(major.style.map(color_diff, subset=["diff"]), use_container_width=True)
 
 # =================================================
-# ✅ 🆕 New Failures (Pass → Fail)
+# ✅ New Failures (Pass → Fail)
 # =================================================
 st.subheader("🆕 New Failures (Pass → Fail)")
 
@@ -174,7 +190,7 @@ if old_status and new_status:
             use_container_width=True
         )
 else:
-    st.warning("Old/New Pass‑Fail columns not detected in this report.")
+    st.warning("Old/New Pass‑Fail columns not detected.")
 
 # =================================================
 # ✅ Severity pie chart
@@ -198,7 +214,6 @@ pie = px.pie(
         "NA": "#999999",
     },
 )
-
 st.plotly_chart(pie, use_container_width=True)
 
 # =================================================
@@ -213,6 +228,6 @@ def to_excel(d):
 st.download_button(
     "⬇️ Download Filtered Excel",
     data=to_excel(view),
-    file_name="Filtered_Diff_Report.xlsx",
+    file_name=f"{selected_display}_Filtered.xlsx",
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 )
