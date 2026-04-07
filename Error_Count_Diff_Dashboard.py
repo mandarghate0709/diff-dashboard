@@ -20,23 +20,51 @@ if not files:
     st.stop()
 
 # =================================================
-# ✅ Clean display name for Select Report
+# ✅ Helper functions for parsing filename
+# Expected:
 # Error_Count_Diff_P173_vs_261E0_NAR.xlsx
-# → P173_vs_261E0_NAR
 # =================================================
+def extract_market(filename: str) -> str:
+    base = os.path.basename(filename).replace(".xlsx", "")
+    return base.split("_")[-1]  # last token = market
+
 def clean_report_name(filename: str) -> str:
-    name = filename.replace("Error_Count_Diff_", "")
-    name = name.replace(".xlsx", "")
-    return name
+    base = os.path.basename(filename)
+    base = base.replace("Error_Count_Diff_", "")
+    base = base.replace(".xlsx", "")
+    return base
 
-display_names = [clean_report_name(os.path.basename(f)) for f in files]
-display_to_file = dict(zip(display_names, files))
+# =================================================
+# ✅ Build Market → Reports mapping
+# =================================================
+market_map = {}
 
-selected_display = st.sidebar.selectbox("Select Report", display_names)
-selected_file = display_to_file[selected_display]
+for f in files:
+    market = extract_market(f)
+    report_name = clean_report_name(f)
+    market_map.setdefault(market, {})[report_name] = f
 
+# =================================================
+# ✅ Sidebar selection (Market → Report)
+# =================================================
+st.sidebar.header("📁 Select Report")
+
+markets = sorted(market_map.keys())
+selected_market = st.sidebar.selectbox("Select Market", markets)
+
+reports_for_market = sorted(market_map[selected_market].keys())
+selected_report = st.sidebar.selectbox(
+    "Select Report",
+    reports_for_market
+)
+
+selected_file = market_map[selected_market][selected_report]
+
+# =================================================
+# Load report
+# =================================================
 df = pd.read_excel(selected_file)
-st.write(f"### ✅ Loaded Report: **{selected_display}**")
+st.write(f"### ✅ Loaded Report: **{selected_report}**  *(Market: {selected_market})*")
 
 # =================================================
 # Detect old/new status & error columns
@@ -160,17 +188,6 @@ st.subheader("📋 Diff Table")
 st.dataframe(view.style.map(color_diff, subset=["diff"]), use_container_width=True)
 
 # =================================================
-# ✅ Top 20 Major Regressions
-# =================================================
-st.subheader("🔥 Top 20 Major Regressions (diff% > 10%)")
-major = (
-    df[df["Severity"] == "Major Regression"]
-    .sort_values("diff_percent", ascending=False)
-    .head(20)
-)
-st.dataframe(major.style.map(color_diff, subset=["diff"]), use_container_width=True)
-
-# =================================================
 # ✅ New Failures (Pass → Fail)
 # =================================================
 st.subheader("🆕 New Failures (Pass → Fail)")
@@ -180,20 +197,16 @@ if old_status and new_status:
         (df[old_status] == "Pass") &
         (df[new_status] == "Fail")
     ]
-
     if new_failures.empty:
         st.info("No new Pass → Fail cases detected.")
     else:
-        st.write(f"**Total New Failures:** {len(new_failures)}")
         st.dataframe(
             new_failures.style.map(color_diff, subset=["diff"]),
             use_container_width=True
         )
-else:
-    st.warning("Old/New Pass‑Fail columns not detected.")
 
 # =================================================
-# ✅ Severity pie chart
+# ✅ Severity Pie
 # =================================================
 st.subheader("🟣 Severity Distribution")
 
@@ -228,6 +241,6 @@ def to_excel(d):
 st.download_button(
     "⬇️ Download Filtered Excel",
     data=to_excel(view),
-    file_name=f"{selected_display}_Filtered.xlsx",
+    file_name=f"{selected_report}_Filtered.xlsx",
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 )
