@@ -4,16 +4,19 @@ import glob
 import os
 import plotly.express as px
 from io import BytesIO
+import numpy as np
 
 st.set_page_config(page_title="Diff Dashboard", layout="wide")
-
 st.title("📊 Single‑Report Diff Dashboard")
 
+# =================================================
+# Base folder (Streamlit Cloud compatible)
+# =================================================
 BASE_PATH = "data"
 
 files = glob.glob(os.path.join(BASE_PATH, "**", "*.xlsx"), recursive=True)
 if not files:
-    st.error("No Excel files found")
+    st.error("No Excel files found in data folder")
     st.stop()
 
 file_names = [os.path.basename(f) for f in files]
@@ -23,18 +26,33 @@ selected_file = dict(zip(file_names, files))[selected_name]
 df = pd.read_excel(selected_file)
 st.write(f"### ✅ Loaded Report: **{selected_name}**")
 
-# ---------- diff % ----------
+# =================================================
+# Detect old/new columns
+# =================================================
+status_cols = [c for c in df.columns if "_" in c and not c.endswith("_errors")]
 error_cols = [c for c in df.columns if c.endswith("_errors")]
-if len(error_cols) == 2:
-    new_col, old_col = error_cols
-    df["diff_percent"] = (
-        (df[new_col] - df[old_col]) / df[old_col].replace(0, pd.NA) * 100
-    ).fillna(0).round(2)
-else:
-    df["diff_percent"] = 0.0
 
-# ---------- severity ----------
-def classify(p):
+old_status, new_status = (status_cols + [None, None])[:2]
+new_err_col, old_err_col = (error_cols + [None, None])[:2]
+
+# =================================================
+# ✅ Robust diff % calculation (0 → non‑zero = NA)
+# =================================================
+def calc_diff_percent(row):
+    old = row[old_err_col]
+    new = row[new_err_col]
+    if old == 0:
+        return np.nan
+    return round(((new - old) / old) * 100, 2)
+
+df["diff_percent"] = df.apply(calc_diff_percent, axis=1)
+
+# =================================================
+# ✅ Severity classification (NA‑aware)
+# =================================================
+def classify_severity(p):
+    if pd.isna(p):
+        return "NA"
     if p > 10:
         return "Major Regression"
     elif p > 5:
@@ -45,9 +63,11 @@ def classify(p):
         return "Improvement"
     return "No Change"
 
-df["Severity"] = df["diff_percent"].apply(classify)
+df["Severity"] = df["diff_percent"].apply(classify_severity)
 
-# ---------- summary ----------
+# =================================================
+# ✅ Summary
+# =================================================
 st.subheader("📦 Summary")
 
 c1, c2, c3, c4 = st.columns(4)
@@ -56,8 +76,9 @@ c2.metric("Regressions", (df["diff"] > 0).sum())
 c3.metric("Improvements", (df["diff"] < 0).sum())
 c4.metric("No Change", (df["diff"] == 0).sum())
 
-worst = df.loc[df["diff_percent"].idxmax()]
-best = df.loc[df["diff_percent"].idxmin()]
+valid_pct = df.dropna(subset=["diff_percent"])
+worst = valid_pct.loc[valid_pct["diff_percent"].idxmax()] if not valid_pct.empty else None
+best  = valid_pct.loc[valid_pct["diff_percent"].idxmin()] if not valid_pct.empty else None
 
 if "highlight" not in st.session_state:
     st.session_state.highlight = None
@@ -65,23 +86,31 @@ if "highlight" not in st.session_state:
 c5, c6 = st.columns(2)
 
 with c5:
-    st.metric("Worst Regression (% diff)", f"{worst['diff_percent']}%")
-    st.caption(f"TestId: {worst['testId']}")
-    if st.button("Highlight Worst"):
-        st.session_state.highlight = worst["testId"]
+    if worst is not None:
+        st.metric("Worst Regression (% diff)", f"{worst['diff_percent']}%")
+        st.caption(f"TestId: {worst['testId']}")
+        if st.button("Highlight Worst"):
+            st.session_state.highlight = worst["testId"]
+    else:
+        st.metric("Worst Regression (% diff)", "NA")
 
 with c6:
-    st.metric("Best Improvement (% diff)", f"{best['diff_percent']}%")
-    st.caption(f"TestId: {best['testId']}")
-    if st.button("Highlight Best"):
-        st.session_state.highlight = best["testId"]
+    if best is not None:
+        st.metric("Best Improvement (% diff)", f"{best['diff_percent']}%")
+        st.caption(f"TestId: {best['testId']}")
+        if st.button("Highlight Best"):
+            st.session_state.highlight = best["testId"]
+    else:
+        st.metric("Best Improvement (% diff)", "NA")
 
-if st.session_state.highlight:
-    if st.button("Clear Highlight"):
-        st.session_state.highlight = None
+if st.session_state.highlight and st.button("Clear Highlight"):
+    st.session_state.highlight = None
 
-# ---------- filters ----------
-st.sidebar.header("Filters")
+# =================================================
+# ✅ Filters
+# =================================================
+st.sidebar.header("🔍 Filters")
+
 mode = st.sidebar.radio("Show", ["All", "Only Regressions", "Only Improvements"])
 view = df.copy()
 
@@ -94,18 +123,20 @@ min_d, max_d = int(df["diff"].min()), int(df["diff"].max())
 rng = st.sidebar.slider("Diff Range", min_d, max_d, (min_d, max_d))
 view = view[(view["diff"] >= rng[0]) & (view["diff"] <= rng[1])]
 
-search = st.sidebar.text_input("Search")
+search = st.sidebar.text_input("Search Test ID / Name")
 if search:
     view = view[
-        view["testId"].str.contains(search, case=False, na=False)
-        | view["testName"].str.contains(search, case=False, na=False)
+        view["testId"].str.contains(search, case=False, na=False) |
+        view["testName"].str.contains(search, case=False, na=False)
     ]
 
 if st.session_state.highlight:
     view = view[view["testId"] == st.session_state.highlight]
 
-# ---------- table ----------
-def color(v):
+# =================================================
+# ✅ Diff table
+# =================================================
+def color_diff(v):
     if isinstance(v, (int, float)):
         if v > 0:
             return "background-color:#FFC7CE"
@@ -114,19 +145,47 @@ def color(v):
     return ""
 
 st.subheader("📋 Diff Table")
-st.dataframe(view.style.map(color, subset=["diff"]), use_container_width=True)
+st.dataframe(view.style.map(color_diff, subset=["diff"]), use_container_width=True)
 
-# ---------- Top major ----------
-st.subheader("🔥 Top 20 Major Regressions")
-maj = df[df["Severity"] == "Major Regression"].sort_values("diff_percent", ascending=False).head(20)
-st.dataframe(maj.style.map(color, subset=["diff"]), use_container_width=True)
+# =================================================
+# ✅ 🔥 Top 20 Major Regressions
+# =================================================
+st.subheader("🔥 Top 20 Major Regressions (diff% > 10%)")
+major = df[df["Severity"] == "Major Regression"].sort_values("diff_percent", ascending=False).head(20)
+st.dataframe(major.style.map(color_diff, subset=["diff"]), use_container_width=True)
 
-# ---------- Pie ----------
-st.subheader("Severity Distribution")
-counts = df["Severity"].value_counts().reset_index()
-counts.columns = ["Severity", "Count"]
+# =================================================
+# ✅ 🆕 New Failures (Pass → Fail)
+# =================================================
+st.subheader("🆕 New Failures (Pass → Fail)")
+
+if old_status and new_status:
+    new_failures = df[
+        (df[old_status] == "Pass") &
+        (df[new_status] == "Fail")
+    ]
+
+    if new_failures.empty:
+        st.info("No new Pass → Fail cases detected.")
+    else:
+        st.write(f"**Total New Failures:** {len(new_failures)}")
+        st.dataframe(
+            new_failures.style.map(color_diff, subset=["diff"]),
+            use_container_width=True
+        )
+else:
+    st.warning("Old/New Pass‑Fail columns not detected in this report.")
+
+# =================================================
+# ✅ Severity pie chart
+# =================================================
+st.subheader("🟣 Severity Distribution")
+
+sev_counts = df["Severity"].value_counts().reset_index()
+sev_counts.columns = ["Severity", "Count"]
+
 pie = px.pie(
-    counts,
+    sev_counts,
     names="Severity",
     values="Count",
     color="Severity",
@@ -136,11 +195,15 @@ pie = px.pie(
         "Minor Regression": "#ffe066",
         "Improvement": "#66cc66",
         "No Change": "#cccccc",
+        "NA": "#999999",
     },
 )
+
 st.plotly_chart(pie, use_container_width=True)
 
-# ---------- Export ----------
+# =================================================
+# ✅ Export
+# =================================================
 def to_excel(d):
     out = BytesIO()
     with pd.ExcelWriter(out, engine="openpyxl") as w:
