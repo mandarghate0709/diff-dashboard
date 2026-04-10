@@ -104,18 +104,19 @@ old_status, new_status = status_cols[:2] if len(status_cols) >= 2 else (None, No
 old_err, new_err = error_cols[:2] if len(error_cols) >= 2 else (None, None)
 
 # =================================================
-# Diff % logic (corrected)
+# ✅ FINAL CORRECT diff % LOGIC
 # =================================================
 def compute_diff_percent(row):
+    # NA if Old = Pass AND Old Errors = 0 AND New Errors > 0
     if (
-        old_status and new_status and old_err and new_err and
+        old_status and old_err and new_err and
         row[old_status] == "Pass" and
-        row[new_status] == "Fail" and
         row[old_err] == 0 and
         row[new_err] > 0
     ):
         return np.nan
 
+    # Normal calculation
     if old_err and row[old_err] != 0:
         return round((row["diff"] / row[old_err]) * 100, 2)
 
@@ -181,7 +182,7 @@ if search:
     ]
 
 # =================================================
-# Diff Table with color coding (Pandas 3.x safe)
+# Diff Table with color coding
 # =================================================
 st.subheader("📋 Diff Table")
 
@@ -254,6 +255,7 @@ fig = px.pie(
     values="Count"
 )
 fig.update_traces(textinfo="label+percent")
+
 st.plotly_chart(fig, use_container_width=True)
 
 # =================================================
