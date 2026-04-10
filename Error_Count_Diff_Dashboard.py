@@ -14,7 +14,7 @@ st.set_page_config(page_title="Error Count Diff Dashboard", layout="wide")
 st.title("📊 Error Count Diff Dashboard")
 
 # =================================================
-# Base folder (Streamlit Cloud compatible)
+# Base folder
 # =================================================
 BASE_PATH = "data"
 
@@ -24,11 +24,10 @@ if not files:
     st.stop()
 
 # =================================================
-# Helpers to parse filenames
+# Filename helpers
 # =================================================
 def extract_market(filename: str) -> str:
-    base = os.path.basename(filename).replace(".xlsx", "")
-    return base.split("_")[-1]
+    return os.path.basename(filename).replace(".xlsx", "").split("_")[-1]
 
 def clean_report_name(filename: str) -> str:
     return (
@@ -38,7 +37,7 @@ def clean_report_name(filename: str) -> str:
     )
 
 # =================================================
-# Build Market → Report mapping
+# Market → Report mapping
 # =================================================
 market_map = {}
 for f in files:
@@ -64,7 +63,7 @@ selected_report = st.sidebar.selectbox(
 selected_file = market_map[selected_market][selected_report]
 
 # =================================================
-# Load selected report
+# Load report
 # =================================================
 df = pd.read_excel(selected_file)
 
@@ -80,22 +79,20 @@ if "Bug Ticket" not in df.columns:
     df["Bug Ticket"] = np.nan
 
 # =================================================
-# Convert HERESUP text → clickable HTML
+# Create Jira URL column (for icon link)
 # =================================================
 JIRA_BASE = "https://here-technologies.atlassian.net/browse/"
 ticket_re = re.compile(r"(HERESUP-\d+)")
 
-def make_clickable(val):
+def ticket_to_url(val):
     if pd.isna(val):
-        return ""
+        return None
     m = ticket_re.search(str(val))
     if m:
-        ticket = m.group(1)
-        url = f"{JIRA_BASE}{ticket}"
-        return f'<a href="{url}" target="_blank">{ticket}</a>'
-    return str(val)
+        return f"{JIRA_BASE}{m.group(1)}"
+    return None
 
-df["Bug Ticket"] = df["Bug Ticket"].apply(make_clickable)
+df["Jira Link"] = df["Bug Ticket"].apply(ticket_to_url)
 
 # =================================================
 # Summary
@@ -137,7 +134,7 @@ if search:
     ]
 
 # =================================================
-# Diff Table (HTML-rendered, clickable HERESUP ✅)
+# Diff Table (clean, styled, stable)
 # =================================================
 st.subheader("📋 Diff Table")
 
@@ -146,18 +143,26 @@ display_cols = [
     "testName",
     *[c for c in df.columns if c.endswith("_errors")],
     "diff",
-    "Bug Ticket"
+    "Bug Ticket",
+    "Jira Link"
 ]
 
 display_cols = [c for c in display_cols if c in view.columns]
 
-st.markdown(
-    view[display_cols].to_html(escape=False, index=False),
-    unsafe_allow_html=True
+st.dataframe(
+    view[display_cols],
+    use_container_width=True,
+    column_config={
+        "Jira Link": st.column_config.LinkColumn(
+            "Jira",
+            display_text="🔗",
+            help="Open HERESUP ticket"
+        )
+    }
 )
 
 # =================================================
-# New Failures (Pass → Fail)
+# Pass → Fail
 # =================================================
 status_cols = [c for c in df.columns if c.endswith(selected_market)]
 if len(status_cols) >= 2:
@@ -170,18 +175,26 @@ if len(status_cols) >= 2:
         (df[new_status] == "Fail")
     ].copy()
 
+    nf["Jira Link"] = nf["Bug Ticket"].apply(ticket_to_url)
+
     if nf.empty:
         st.info("No new Pass → Fail cases detected.")
     else:
-        st.markdown(
+        st.dataframe(
             nf[
-                ["testId", "testName", "diff", "Bug Ticket"]
-            ].to_html(escape=False, index=False),
-            unsafe_allow_html=True
+                ["testId", "testName", "diff", "Bug Ticket", "Jira Link"]
+            ],
+            use_container_width=True,
+            column_config={
+                "Jira Link": st.column_config.LinkColumn(
+                    "Jira",
+                    display_text="🔗"
+                )
+            }
         )
 
 # =================================================
-# Severity Pie Chart
+# Severity Pie (RESTORED)
 # =================================================
 if "Severity" in df.columns:
     st.subheader("🟣 Severity Distribution")
@@ -193,7 +206,7 @@ if "Severity" in df.columns:
     st.plotly_chart(fig, use_container_width=True)
 
 # =================================================
-# Export (FIXED)
+# Export
 # =================================================
 st.subheader("📤 Export")
 
@@ -207,3 +220,4 @@ st.download_button(
     file_name=f"{selected_report}_Filtered.xlsx",
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 )
+``
