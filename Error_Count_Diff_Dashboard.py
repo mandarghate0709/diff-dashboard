@@ -79,7 +79,7 @@ if "Bug Ticket" not in df.columns:
     df["Bug Ticket"] = np.nan
 
 # =================================================
-# Jira link column
+# Jira link column (stable)
 # =================================================
 JIRA_BASE = "https://here-technologies.atlassian.net/browse/"
 ticket_re = re.compile(r"(HERESUP-\d+)")
@@ -95,27 +95,44 @@ def ticket_to_url(val):
 df["Jira Link"] = df["Bug Ticket"].apply(ticket_to_url)
 
 # =================================================
-# Compute Severity if missing
+# Detect error columns
 # =================================================
-if "Severity" not in df.columns:
-    def classify_severity(row):
-        if "diff_percent" in row and not pd.isna(row.get("diff_percent")):
-            p = row["diff_percent"]
-            if p > 10:
-                return "Major Regression"
-            elif p > 5:
-                return "Moderate Regression"
-            elif p > 0:
-                return "Minor Regression"
-            elif p < 0:
-                return "Improvement"
-        if row["diff"] > 0:
-            return "Regression"
-        elif row["diff"] < 0:
-            return "Improvement"
-        return "No Change"
+error_cols = [c for c in df.columns if c.endswith("_errors")]
+if len(error_cols) >= 2:
+    old_err, new_err = error_cols[:2]
+else:
+    old_err, new_err = None, None
 
-    df["Severity"] = df.apply(classify_severity, axis=1)
+# =================================================
+# Compute Diff %
+# =================================================
+if old_err and new_err:
+    df["diff_percent"] = np.where(
+        df[old_err] == 0,
+        np.nan,
+        (df["diff"] / df[old_err]) * 100
+    ).round(2)
+else:
+    df["diff_percent"] = np.nan
+
+# =================================================
+# Compute Severity from Diff %
+# =================================================
+def classify_severity(row):
+    p = row["diff_percent"]
+    if pd.isna(p):
+        return "NA"
+    if p < 0:
+        return "Improvement"
+    if p == 0:
+        return "No Change"
+    if p <= 5:
+        return "Minor Regression"
+    if p <= 10:
+        return "Moderate Regression"
+    return "Major Regression"
+
+df["Severity"] = df.apply(classify_severity, axis=1)
 
 # =================================================
 # Summary
@@ -157,15 +174,15 @@ if search:
     ]
 
 # =================================================
-# Diff Table with COLOR CODING (Pandas 3.x FIX ✅)
+# Diff table with color coding
 # =================================================
 st.subheader("📋 Diff Table")
 
 def color_diff(val):
     if val > 0:
-        return "background-color: #FFC7CE"
-    elif val < 0:
-        return "background-color: #C6EFCE"
+        return "background-color:#FFC7CE"
+    if val < 0:
+        return "background-color:#C6EFCE"
     return ""
 
 styled = view.style.map(color_diff, subset=["diff"])
@@ -176,21 +193,18 @@ st.dataframe(
     column_config={
         "Jira Link": st.column_config.LinkColumn(
             "Jira",
-            display_text="🔗",
-            help="Open HERESUP ticket"
+            display_text="🔗"
         )
     }
 )
 
 # =================================================
-# New Failures (Pass → Fail) WITH old/new errors
+# New Failures (Pass → Fail)
 # =================================================
 status_cols = [c for c in df.columns if c.endswith(selected_market)]
-error_cols = [c for c in df.columns if c.endswith("_errors")]
 
-if len(status_cols) >= 2 and len(error_cols) >= 2:
+if len(status_cols) >= 2 and old_err and new_err:
     old_status, new_status = status_cols[:2]
-    old_err, new_err = error_cols[:2]
 
     st.subheader("🆕 New Failures (Pass → Fail)")
 
@@ -201,35 +215,45 @@ if len(status_cols) >= 2 and len(error_cols) >= 2:
 
     nf["Jira Link"] = nf["Bug Ticket"].apply(ticket_to_url)
 
-    if nf.empty:
-        st.info("No new Pass → Fail cases detected.")
-    else:
-        st.dataframe(
-            nf[
-                ["testId", "testName", old_err, new_err, "diff", "Jira Link"]
-            ],
-            use_container_width=True,
-            column_config={
-                "Jira Link": st.column_config.LinkColumn(
-                    "Jira",
-                    display_text="🔗"
-                )
-            }
-        )
+    styled_nf = nf.style.map(color_diff, subset=["diff"])
+
+    st.dataframe(
+        styled_nf[
+            ["testId", "testName", old_err, new_err, "diff", "diff_percent", "Severity", "Jira Link"]
+        ],
+        use_container_width=True,
+        column_config={
+            "Jira Link": st.column_config.LinkColumn(
+                "Jira",
+                display_text="🔗"
+            )
+        }
+    )
 
 # =================================================
-# Severity Pie Chart (RESTORED ✅)
+# Severity Pie Chart with percentages
 # =================================================
 st.subheader("🟣 Severity Distribution")
 
 sev_counts = df["Severity"].value_counts().reset_index()
 sev_counts.columns = ["Severity", "Count"]
+sev_counts["Percent"] = (sev_counts["Count"] / sev_counts["Count"].sum() * 100).round(1)
 
 fig = px.pie(
     sev_counts,
     names="Severity",
-    values="Count"
+    values="Count",
+    hover_data=["Percent"],
+    labels={
+        "Severity": "Severity",
+        "Count": "Count"
+    }
 )
+
+fig.update_traces(
+    textinfo="label+percent"
+)
+
 st.plotly_chart(fig, use_container_width=True)
 
 # =================================================
