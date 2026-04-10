@@ -79,7 +79,7 @@ if "Bug Ticket" not in df.columns:
     df["Bug Ticket"] = np.nan
 
 # =================================================
-# Create Jira URL column (for icon link)
+# Create Jira link column (icon-based, stable)
 # =================================================
 JIRA_BASE = "https://here-technologies.atlassian.net/browse/"
 ticket_re = re.compile(r"(HERESUP-\d+)")
@@ -134,7 +134,7 @@ if search:
     ]
 
 # =================================================
-# Diff Table (clean, styled, stable)
+# Diff Table
 # =================================================
 st.subheader("📋 Diff Table")
 
@@ -194,7 +194,7 @@ if len(status_cols) >= 2:
         )
 
 # =================================================
-# Severity Pie (RESTORED)
+# Severity Pie Chart
 # =================================================
 if "Severity" in df.columns:
     st.subheader("🟣 Severity Distribution")
@@ -220,4 +220,3 @@ st.download_button(
     file_name=f"{selected_report}_Filtered.xlsx",
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 )
-``
