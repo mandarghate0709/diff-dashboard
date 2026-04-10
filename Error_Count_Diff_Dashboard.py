@@ -73,13 +73,13 @@ st.write(
 )
 
 # =================================================
-# Ensure Bug Ticket column exists
+# Ensure required columns
 # =================================================
 if "Bug Ticket" not in df.columns:
     df["Bug Ticket"] = np.nan
 
 # =================================================
-# Create Jira link column (icon-based, stable)
+# Jira link column (stable)
 # =================================================
 JIRA_BASE = "https://here-technologies.atlassian.net/browse/"
 ticket_re = re.compile(r"(HERESUP-\d+)")
@@ -95,15 +95,38 @@ def ticket_to_url(val):
 df["Jira Link"] = df["Bug Ticket"].apply(ticket_to_url)
 
 # =================================================
+# Compute Severity if missing
+# =================================================
+if "Severity" not in df.columns:
+    def classify_severity(row):
+        if "diff_percent" in row and not pd.isna(row["diff_percent"]):
+            p = row["diff_percent"]
+            if p > 10:
+                return "Major Regression"
+            elif p > 5:
+                return "Moderate Regression"
+            elif p > 0:
+                return "Minor Regression"
+            elif p < 0:
+                return "Improvement"
+        if row["diff"] > 0:
+            return "Regression"
+        elif row["diff"] < 0:
+            return "Improvement"
+        return "No Change"
+
+    df["Severity"] = df.apply(classify_severity, axis=1)
+
+# =================================================
 # Summary
 # =================================================
 st.subheader("📦 Summary")
 
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Total Tests", len(df))
-c2.metric("Regressions (diff > 0)", (df["diff"] > 0).sum())
-c3.metric("Improvements (diff < 0)", (df["diff"] < 0).sum())
-c4.metric("No Change (diff = 0)", (df["diff"] == 0).sum())
+c2.metric("Regressions", (df["diff"] > 0).sum())
+c3.metric("Improvements", (df["diff"] < 0).sum())
+c4.metric("No Change", (df["diff"] == 0).sum())
 
 # =================================================
 # Filters
@@ -134,39 +157,39 @@ if search:
     ]
 
 # =================================================
-# Diff Table
+# Diff Table with COLOR CODING
 # =================================================
 st.subheader("📋 Diff Table")
 
-display_cols = [
-    "testId",
-    "testName",
-    *[c for c in df.columns if c.endswith("_errors")],
-    "diff",
-    "Bug Ticket",
-    "Jira Link"
-]
+def color_diff(val):
+    if val > 0:
+        return "background-color: #FFC7CE"
+    elif val < 0:
+        return "background-color: #C6EFCE"
+    return ""
 
-display_cols = [c for c in display_cols if c in view.columns]
+styled = view.style.applymap(color_diff, subset=["diff"])
 
 st.dataframe(
-    view[display_cols],
+    styled,
     use_container_width=True,
     column_config={
         "Jira Link": st.column_config.LinkColumn(
             "Jira",
-            display_text="🔗",
-            help="Open HERESUP ticket"
+            display_text="🔗"
         )
     }
 )
 
 # =================================================
-# Pass → Fail
+# New Failures (Pass → Fail) WITH ERROR COUNTS
 # =================================================
 status_cols = [c for c in df.columns if c.endswith(selected_market)]
-if len(status_cols) >= 2:
+error_cols = [c for c in df.columns if c.endswith("_errors")]
+
+if len(status_cols) >= 2 and len(error_cols) >= 2:
     old_status, new_status = status_cols[:2]
+    old_err, new_err = error_cols[:2]
 
     st.subheader("🆕 New Failures (Pass → Fail)")
 
@@ -182,7 +205,7 @@ if len(status_cols) >= 2:
     else:
         st.dataframe(
             nf[
-                ["testId", "testName", "diff", "Bug Ticket", "Jira Link"]
+                ["testId", "testName", old_err, new_err, "diff", "Jira Link"]
             ],
             use_container_width=True,
             column_config={
@@ -196,14 +219,17 @@ if len(status_cols) >= 2:
 # =================================================
 # Severity Pie Chart
 # =================================================
-if "Severity" in df.columns:
-    st.subheader("🟣 Severity Distribution")
+st.subheader("🟣 Severity Distribution")
 
-    sev = df["Severity"].value_counts().reset_index()
-    sev.columns = ["Severity", "Count"]
+sev_counts = df["Severity"].value_counts().reset_index()
+sev_counts.columns = ["Severity", "Count"]
 
-    fig = px.pie(sev, names="Severity", values="Count")
-    st.plotly_chart(fig, use_container_width=True)
+fig = px.pie(
+    sev_counts,
+    names="Severity",
+    values="Count"
+)
+st.plotly_chart(fig, use_container_width=True)
 
 # =================================================
 # Export
