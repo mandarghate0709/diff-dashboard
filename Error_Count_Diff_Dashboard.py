@@ -104,23 +104,29 @@ old_status, new_status = status_cols[:2] if len(status_cols) >= 2 else (None, No
 old_err, new_err = error_cols[:2] if len(error_cols) >= 2 else (None, None)
 
 # =================================================
-# Compute Diff %
+# ✅ FIXED Diff % logic (STATUS‑BASED)
 # =================================================
 def compute_diff_percent(row):
-    # Pass → Fail with 0 old errors → NA
-    if old_err and row[old_err] == 0 and row["diff"] > 0:
+    # Pass → Fail ALWAYS NA
+    if (
+        old_status and new_status and
+        row[old_status] == "Pass" and
+        row[new_status] == "Fail"
+    ):
         return np.nan
-    if old_err and row[old_err] != 0:
+
+    # Normal calculation
+    if old_err and row[old_err] and row[old_err] != 0:
         return round((row["diff"] / row[old_err]) * 100, 2)
+
     return np.nan
 
 df["diff_percent"] = df.apply(compute_diff_percent, axis=1)
 
 # =================================================
-# Compute Severity from Diff %
+# ✅ Severity from diff %
 # =================================================
-def classify_severity(row):
-    p = row["diff_percent"]
+def classify_severity(p):
     if pd.isna(p):
         return "NA"
     if p < 0:
@@ -133,7 +139,7 @@ def classify_severity(row):
         return "Moderate Regression"
     return "Major Regression"
 
-df["Severity"] = df.apply(classify_severity, axis=1)
+df["Severity"] = df["diff_percent"].apply(classify_severity)
 
 # =================================================
 # Summary
@@ -197,7 +203,7 @@ st.dataframe(
 )
 
 # =================================================
-# New Failures (Pass → Fail) — FIXED ✅
+# New Failures (Pass → Fail)
 # =================================================
 if old_status and new_status and old_err and new_err:
     st.subheader("🆕 New Failures (Pass → Fail)")
@@ -266,3 +272,4 @@ st.download_button(
     file_name=f"{selected_report}_Filtered.xlsx",
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 )
+``
