@@ -27,7 +27,8 @@ if not files:
 # Helpers to parse filenames
 # =================================================
 def extract_market(filename: str) -> str:
-    return os.path.basename(filename).replace(".xlsx", "").split("_")[-1]
+    base = os.path.basename(filename).replace(".xlsx", "")
+    return base.split("_")[-1]
 
 def clean_report_name(filename: str) -> str:
     return (
@@ -79,20 +80,22 @@ if "Bug Ticket" not in df.columns:
     df["Bug Ticket"] = np.nan
 
 # =================================================
-# Create Jira URL column
+# Convert HERESUP text → clickable HTML
 # =================================================
 JIRA_BASE = "https://here-technologies.atlassian.net/browse/"
 ticket_re = re.compile(r"(HERESUP-\d+)")
 
-def ticket_to_url(val):
+def make_clickable(val):
     if pd.isna(val):
-        return None
+        return ""
     m = ticket_re.search(str(val))
     if m:
-        return f"{JIRA_BASE}{m.group(1)}"
-    return None
+        ticket = m.group(1)
+        url = f"{JIRA_BASE}{ticket}"
+        return f'<a href="{url}" target="_blank">{ticket}</a>'
+    return str(val)
 
-df["Bug Ticket Link"] = df["Bug Ticket"].apply(ticket_to_url)
+df["Bug Ticket"] = df["Bug Ticket"].apply(make_clickable)
 
 # =================================================
 # Summary
@@ -134,7 +137,7 @@ if search:
     ]
 
 # =================================================
-# Main Diff Table (HERESUP TEXT CLICKABLE ✅)
+# Diff Table (HTML-rendered, clickable HERESUP ✅)
 # =================================================
 st.subheader("📋 Diff Table")
 
@@ -143,20 +146,14 @@ display_cols = [
     "testName",
     *[c for c in df.columns if c.endswith("_errors")],
     "diff",
-    "Bug Ticket Link"
+    "Bug Ticket"
 ]
 
 display_cols = [c for c in display_cols if c in view.columns]
 
-st.dataframe(
-    view[display_cols],
-    use_container_width=True,
-    column_config={
-        "Bug Ticket Link": st.column_config.LinkColumn(
-            "Bug Ticket",
-            display_text=lambda url: url.split("/")[-1] if url else ""
-        )
-    }
+st.markdown(
+    view[display_cols].to_html(escape=False, index=False),
+    unsafe_allow_html=True
 )
 
 # =================================================
@@ -173,39 +170,26 @@ if len(status_cols) >= 2:
         (df[new_status] == "Fail")
     ].copy()
 
-    nf["Bug Ticket Link"] = nf["Bug Ticket"].apply(ticket_to_url)
-
     if nf.empty:
         st.info("No new Pass → Fail cases detected.")
     else:
-        st.dataframe(
+        st.markdown(
             nf[
-                ["testId", "testName", "diff", "Bug Ticket Link"]
-            ],
-            use_container_width=True,
-            column_config={
-                "Bug Ticket Link": st.column_config.LinkColumn(
-                    "Bug Ticket",
-                    display_text=lambda url: url.split("/")[-1] if url else ""
-                )
-            }
+                ["testId", "testName", "diff", "Bug Ticket"]
+            ].to_html(escape=False, index=False),
+            unsafe_allow_html=True
         )
 
 # =================================================
-# Severity Pie Chart (PRESERVED)
+# Severity Pie Chart
 # =================================================
 if "Severity" in df.columns:
     st.subheader("🟣 Severity Distribution")
 
-    sev_counts = df["Severity"].value_counts().reset_index()
-    sev_counts.columns = ["Severity", "Count"]
+    sev = df["Severity"].value_counts().reset_index()
+    sev.columns = ["Severity", "Count"]
 
-    fig = px.pie(
-        sev_counts,
-        names="Severity",
-        values="Count",
-        color="Severity"
-    )
+    fig = px.pie(sev, names="Severity", values="Count")
     st.plotly_chart(fig, use_container_width=True)
 
 # =================================================
