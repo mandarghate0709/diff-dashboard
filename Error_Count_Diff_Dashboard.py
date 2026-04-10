@@ -3,47 +3,7 @@ import pandas as pd
 import glob
 import os
 import plotly.express as px
-import numpy as np
-import re
-from io import BytesIO
-
-# =================================================
-# Streamlit setup
-# =================================================
-st.set_page_config(page_title="Error Count Diff Dashboard", layout="wide")
-st.title("📊 Error Count Diff Dashboard")
-
-# =================================================
-# Base folder
-# =================================================
-BASE_PATH = "data"
-
-files = glob.glob(os.path.join(BASE_PATH, "*.xlsx"))
-if not files:
-    st.error("No Excel files found in data/ folder")
-    st.stop()
-
-# =================================================
-# Filename helpers
-# =================================================
-def extract_market(filename: str) -> str:
-    return os.path.basename(filename).replace(".xlsx", "").split("_")[-1]
-
-def clean_report_name(filename: str) -> str:
-    return (
-        os.path.basename(filename)
-        .replace("Error_Count_Diff_", "")
-        .replace(".xlsx", "")
-    )
-
-# =================================================
-# Market → Report mapping
-# =================================================
-market_map = {}
-for f in files:
-    market = extract_market(f)
-    report = clean_report_name(f)
-    market_map.setdefault(market, {})[report] = f
+import numpy as np] = fimport numpy as np
 
 # =================================================
 # Sidebar selection
@@ -104,21 +64,29 @@ old_status, new_status = status_cols[:2] if len(status_cols) >= 2 else (None, No
 old_err, new_err = error_cols[:2] if len(error_cols) >= 2 else (None, None)
 
 # =================================================
-# Compute Diff %
+# ✅ FIXED diff % logic (status + error aware)
 # =================================================
 def compute_diff_percent(row):
-    # Pass → Fail should be NA
-    if old_status and new_status:
-        if row[old_status] == "Pass" and row[new_status] == "Fail":
-            return np.nan
+    # ONLY Pass(0 errors) → Fail(>0 errors) → NA
+    if (
+        old_status and new_status and old_err and new_err and
+        row[old_status] == "Pass" and
+        row[new_status] == "Fail" and
+        row[old_err] == 0 and
+        row[new_err] > 0
+    ):
+        return np.nan
+
+    # Normal calculation
     if old_err and row[old_err] and row[old_err] != 0:
         return round((row["diff"] / row[old_err]) * 100, 2)
+
     return np.nan
 
 df["diff_percent"] = df.apply(compute_diff_percent, axis=1)
 
 # =================================================
-# Compute Severity
+# Severity classification
 # =================================================
 def classify_severity(p):
     if pd.isna(p):
@@ -258,7 +226,7 @@ fig.update_traces(textinfo="label+percent")
 st.plotly_chart(fig, use_container_width=True)
 
 # =================================================
-# ✅ Regression Severity Criteria (NEW)
+# ✅ Regression Severity Criteria (NA REMOVED)
 # =================================================
 st.subheader("ℹ️ Regression Severity Criteria")
 
@@ -268,16 +236,14 @@ criteria_df = pd.DataFrame({
         "Moderate Regression",
         "Major Regression",
         "Improvement",
-        "No Change",
-        "NA (Pass → Fail)"
+        "No Change"
     ],
     "Diff % Criteria": [
         "0% < Diff % ≤ 5%",
         "5% < Diff % ≤ 10%",
         "Diff % > 10%",
         "Diff % < 0",
-        "Diff % = 0",
-        "Old = Pass and New = Fail"
+        "Diff % = 0"
     ]
 })
 
@@ -298,3 +264,42 @@ st.download_button(
     file_name=f"{selected_report}_Filtered.xlsx",
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 )
+import re
+from io import BytesIO
+
+# =================================================
+# Streamlit setup
+# =================================================
+st.set_page_config(page_title="Error Count Diff Dashboard", layout="wide")
+st.title("📊 Error Count Diff Dashboard")
+
+# =================================================
+# Base folder
+# =================================================
+BASE_PATH = "data"
+
+files = glob.glob(os.path.join(BASE_PATH, "*.xlsx"))
+if not files:
+    st.error("No Excel files found in data/ folder")
+    st.stop()
+
+# =================================================
+# Filename helpers
+# =================================================
+def extract_market(filename: str) -> str:
+    return os.path.basename(filename).replace(".xlsx", "").split("_")[-1]
+
+def clean_report_name(filename: str) -> str:
+    return (
+        os.path.basename(filename)
+        .replace("Error_Count_Diff_", "")
+        .replace(".xlsx", "")
+    )
+
+# =================================================
+# Market → Report mapping
+# =================================================
+market_map = {}
+for f in files:
+    market = extract_market(f)
+    report = clean_report_name(f)
