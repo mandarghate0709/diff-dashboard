@@ -95,27 +95,32 @@ def ticket_to_url(val):
 df["Jira Link"] = df["Bug Ticket"].apply(ticket_to_url)
 
 # =================================================
-# Detect error columns
+# Detect status & error columns
 # =================================================
+status_cols = [c for c in df.columns if c.endswith(selected_market)]
 error_cols = [c for c in df.columns if c.endswith("_errors")]
+
+old_status, new_status = status_cols[:2] if len(status_cols) >= 2 else (None, None)
 old_err, new_err = error_cols[:2] if len(error_cols) >= 2 else (None, None)
 
 # =================================================
 # Compute Diff %
 # =================================================
-if old_err and new_err:
-    df["diff_percent"] = np.where(
-        df[old_err] == 0,
-        np.nan,
-        (df["diff"] / df[old_err]) * 100
-    ).round(2)
-else:
-    df["diff_percent"] = np.nan
+def compute_diff_percent(row):
+    # Pass → Fail with 0 old errors → NA
+    if old_err and row[old_err] == 0 and row["diff"] > 0:
+        return np.nan
+    if old_err and row[old_err] != 0:
+        return round((row["diff"] / row[old_err]) * 100, 2)
+    return np.nan
+
+df["diff_percent"] = df.apply(compute_diff_percent, axis=1)
 
 # =================================================
 # Compute Severity from Diff %
 # =================================================
-def classify_severity(p):
+def classify_severity(row):
+    p = row["diff_percent"]
     if pd.isna(p):
         return "NA"
     if p < 0:
@@ -128,7 +133,7 @@ def classify_severity(p):
         return "Moderate Regression"
     return "Major Regression"
 
-df["Severity"] = df["diff_percent"].apply(classify_severity)
+df["Severity"] = df.apply(classify_severity, axis=1)
 
 # =================================================
 # Summary
@@ -170,7 +175,7 @@ if search:
     ]
 
 # =================================================
-# Diff Table with color coding (Pandas 3.x safe)
+# Diff Table with color coding
 # =================================================
 st.subheader("📋 Diff Table")
 
@@ -187,21 +192,14 @@ st.dataframe(
     styled_main,
     use_container_width=True,
     column_config={
-        "Jira Link": st.column_config.LinkColumn(
-            "Jira",
-            display_text="🔗"
-        )
+        "Jira Link": st.column_config.LinkColumn("Jira", display_text="🔗")
     }
 )
 
 # =================================================
-# New Failures (Pass → Fail)
+# New Failures (Pass → Fail) — FIXED ✅
 # =================================================
-status_cols = [c for c in df.columns if c.endswith(selected_market)]
-
-if len(status_cols) >= 2 and old_err and new_err:
-    old_status, new_status = status_cols[:2]
-
+if old_status and new_status and old_err and new_err:
     st.subheader("🆕 New Failures (Pass → Fail)")
 
     nf = df[
@@ -212,7 +210,18 @@ if len(status_cols) >= 2 and old_err and new_err:
     nf["Jira Link"] = nf["Bug Ticket"].apply(ticket_to_url)
 
     nf_view = nf[
-        ["testId", "testName", old_err, new_err, "diff", "diff_percent", "Severity", "Jira Link"]
+        [
+            "testId",
+            "testName",
+            old_status,
+            new_status,
+            old_err,
+            new_err,
+            "diff",
+            "diff_percent",
+            "Severity",
+            "Jira Link",
+        ]
     ]
 
     styled_nf = nf_view.style.map(color_diff, subset=["diff"])
@@ -221,10 +230,7 @@ if len(status_cols) >= 2 and old_err and new_err:
         styled_nf,
         use_container_width=True,
         column_config={
-            "Jira Link": st.column_config.LinkColumn(
-                "Jira",
-                display_text="🔗"
-            )
+            "Jira Link": st.column_config.LinkColumn("Jira", display_text="🔗")
         }
     )
 
@@ -242,6 +248,7 @@ fig = px.pie(
     values="Count"
 )
 fig.update_traces(textinfo="label+percent")
+
 st.plotly_chart(fig, use_container_width=True)
 
 # =================================================
