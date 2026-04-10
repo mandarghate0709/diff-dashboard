@@ -3,30 +3,33 @@ import pandas as pd
 import glob
 import os
 import plotly.express as px
-from io import BytesIO
 import numpy as np
+import re
 
-st.set_page_config(page_title="Diff Dashboard", layout="wide")
-st.title("📊 Single‑Report Diff Dashboard")
+# =================================================
+# Streamlit setup
+# =================================================
+st.set_page_config(page_title="Error Count Diff Dashboard", layout="wide")
+st.title("📊 Error Count Diff Dashboard")
 
 # =================================================
 # Base folder (Streamlit Cloud compatible)
 # =================================================
 BASE_PATH = "data"
 
-files = glob.glob(os.path.join(BASE_PATH, "**", "*.xlsx"), recursive=True)
+files = glob.glob(os.path.join(BASE_PATH, "*.xlsx"))
 if not files:
-    st.error("No Excel files found in data folder")
+    st.error("No Excel files found in data/ folder")
     st.stop()
 
 # =================================================
-# ✅ Helper functions for parsing filename
-# Expected:
+# Helpers to parse filenames
+# Pattern:
 # Error_Count_Diff_P173_vs_261E0_NAR.xlsx
 # =================================================
 def extract_market(filename: str) -> str:
     base = os.path.basename(filename).replace(".xlsx", "")
-    return base.split("_")[-1]  # last token = market
+    return base.split("_")[-1]
 
 def clean_report_name(filename: str) -> str:
     base = os.path.basename(filename)
@@ -35,7 +38,7 @@ def clean_report_name(filename: str) -> str:
     return base
 
 # =================================================
-# ✅ Build Market → Reports mapping
+# Build Market → Report mapping
 # =================================================
 market_map = {}
 
@@ -45,113 +48,55 @@ for f in files:
     market_map.setdefault(market, {})[report_name] = f
 
 # =================================================
-# ✅ Sidebar selection (Market → Report)
+# Sidebar selection
 # =================================================
 st.sidebar.header("📁 Select Report")
 
 markets = sorted(market_map.keys())
 selected_market = st.sidebar.selectbox("Select Market", markets)
 
-reports_for_market = sorted(market_map[selected_market].keys())
-selected_report = st.sidebar.selectbox(
-    "Select Report",
-    reports_for_market
-)
+reports = sorted(market_map[selected_market].keys())
+selected_report = st.sidebar.selectbox("Select Report", reports)
 
 selected_file = market_map[selected_market][selected_report]
 
 # =================================================
-# Load report
+# Load selected report
 # =================================================
 df = pd.read_excel(selected_file)
-st.write(f"### ✅ Loaded Report: **{selected_report}**  *(Market: {selected_market})*")
+
+st.write(
+    f"### ✅ Loaded Report: **{selected_report}** "
+    f"(Market: **{selected_market}**)"
+)
 
 # =================================================
-# Detect old/new status & error columns
+# Ensure Bug Ticket column exists
 # =================================================
-status_cols = [c for c in df.columns if "_" in c and not c.endswith("_errors")]
-error_cols = [c for c in df.columns if c.endswith("_errors")]
-
-old_status, new_status = (status_cols + [None, None])[:2]
-new_err_col, old_err_col = (error_cols + [None, None])[:2]
+if "Bug Ticket" not in df.columns:
+    df["Bug Ticket"] = np.nan
 
 # =================================================
-# ✅ Robust diff % calculation (0 → non‑zero = NA)
-# =================================================
-def calc_diff_percent(row):
-    old = row[old_err_col]
-    new = row[new_err_col]
-    if old == 0:
-        return np.nan
-    return round(((new - old) / old) * 100, 2)
-
-df["diff_percent"] = df.apply(calc_diff_percent, axis=1)
-
-# =================================================
-# ✅ Severity classification (NA‑aware)
-# =================================================
-def classify_severity(p):
-    if pd.isna(p):
-        return "NA"
-    if p > 10:
-        return "Major Regression"
-    elif p > 5:
-        return "Moderate Regression"
-    elif p > 0:
-        return "Minor Regression"
-    elif p < 0:
-        return "Improvement"
-    return "No Change"
-
-df["Severity"] = df["diff_percent"].apply(classify_severity)
-
-# =================================================
-# ✅ Summary
+# Summary section
 # =================================================
 st.subheader("📦 Summary")
 
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Total Tests", len(df))
-c2.metric("Regressions", (df["diff"] > 0).sum())
-c3.metric("Improvements", (df["diff"] < 0).sum())
-c4.metric("No Change", (df["diff"] == 0).sum())
-
-valid_pct = df.dropna(subset=["diff_percent"])
-worst = valid_pct.loc[valid_pct["diff_percent"].idxmax()] if not valid_pct.empty else None
-best = valid_pct.loc[valid_pct["diff_percent"].idxmin()] if not valid_pct.empty else None
-
-if "highlight" not in st.session_state:
-    st.session_state.highlight = None
-
-c5, c6 = st.columns(2)
-
-with c5:
-    if worst is not None:
-        st.metric("Worst Regression (% diff)", f"{worst['diff_percent']}%")
-        st.caption(f"TestId: {worst['testId']}")
-        if st.button("Highlight Worst"):
-            st.session_state.highlight = worst["testId"]
-    else:
-        st.metric("Worst Regression (% diff)", "NA")
-
-with c6:
-    if best is not None:
-        st.metric("Best Improvement (% diff)", f"{best['diff_percent']}%")
-        st.caption(f"TestId: {best['testId']}")
-        if st.button("Highlight Best"):
-            st.session_state.highlight = best["testId"]
-    else:
-        st.metric("Best Improvement (% diff)", "NA")
-
-if st.session_state.highlight and st.button("Clear Highlight"):
-    st.session_state.highlight = None
+c2.metric("Regressions (diff > 0)", (df["diff"] > 0).sum())
+c3.metric("Improvements (diff < 0)", (df["diff"] < 0).sum())
+c4.metric("No Change (diff = 0)", (df["diff"] == 0).sum())
 
 # =================================================
-# ✅ Filters
+# Sidebar filters
 # =================================================
 st.sidebar.header("🔍 Filters")
 
-mode = st.sidebar.radio("Show", ["All", "Only Regressions", "Only Improvements"])
+mode = st.sidebar.radio(
+    "Show",
+    ["All", "Only Regressions", "Only Improvements"]
+)
+
 view = df.copy()
 
 if mode == "Only Regressions":
@@ -160,8 +105,17 @@ elif mode == "Only Improvements":
     view = view[view["diff"] < 0]
 
 min_d, max_d = int(df["diff"].min()), int(df["diff"].max())
-rng = st.sidebar.slider("Diff Range", min_d, max_d, (min_d, max_d))
-view = view[(view["diff"] >= rng[0]) & (view["diff"] <= rng[1])]
+rng = st.sidebar.slider(
+    "Diff Range",
+    min_d,
+    max_d,
+    (min_d, max_d)
+)
+
+view = view[
+    (view["diff"] >= rng[0]) &
+    (view["diff"] <= rng[1])
+]
 
 search = st.sidebar.text_input("Search Test ID / Name")
 if search:
@@ -170,77 +124,108 @@ if search:
         view["testName"].str.contains(search, case=False, na=False)
     ]
 
-if st.session_state.highlight:
-    view = view[view["testId"] == st.session_state.highlight]
+# =================================================
+# Render Bug Ticket as clickable link
+# =================================================
+JIRA_BASE = "https://here-technologies.atlassian.net/browse/"
+ticket_re = re.compile(r"(HERESUP-\d+)")
+
+def make_bug_link(val):
+    if pd.isna(val):
+        return ""
+    text = str(val)
+    m = ticket_re.search(text)
+    if m:
+        ticket = m.group(1)
+        url = f"{JIRA_BASE}{ticket}"
+        return f"[{ticket}]({url})"
+    return text
+
+view["Bug Ticket"] = view["Bug Ticket"].apply(make_bug_link)
 
 # =================================================
-# ✅ Diff table
+# Diff table (main)
 # =================================================
-def color_diff(v):
-    if isinstance(v, (int, float)):
-        if v > 0:
-            return "background-color:#FFC7CE"
-        if v < 0:
-            return "background-color:#C6EFCE"
-    return ""
-
 st.subheader("📋 Diff Table")
-st.dataframe(view.style.map(color_diff, subset=["diff"]), use_container_width=True)
+
+display_cols = [
+    "testId",
+    "testName",
+    col for col in df.columns
+    if col.endswith("_errors")
+] + [
+    "diff",
+    "Bug Ticket"
+]
+
+display_cols = [c for c in display_cols if c in view.columns]
+
+st.dataframe(
+    view[display_cols],
+    use_container_width=True
+)
 
 # =================================================
-# ✅ New Failures (Pass → Fail)
+# New Failures (Pass → Fail)
 # =================================================
-st.subheader("🆕 New Failures (Pass → Fail)")
+status_cols = [
+    c for c in df.columns
+    if c not in display_cols and c.endswith(selected_market)
+]
 
-if old_status and new_status:
+if len(status_cols) >= 2:
+    old_status, new_status = status_cols[:2]
+
+    st.subheader("🆕 New Failures (Pass → Fail)")
+
     new_failures = df[
         (df[old_status] == "Pass") &
         (df[new_status] == "Fail")
     ]
+
     if new_failures.empty:
         st.info("No new Pass → Fail cases detected.")
     else:
+        nf = new_failures.copy()
+        nf["Bug Ticket"] = nf["Bug Ticket"].apply(make_bug_link)
+
+        st.write(f"**Total New Failures:** {len(nf)}")
         st.dataframe(
-            new_failures.style.map(color_diff, subset=["diff"]),
+            nf[
+                ["testId", "testName", "diff", "Bug Ticket"]
+            ],
             use_container_width=True
         )
 
 # =================================================
-# ✅ Severity Pie
+# Severity Pie Chart (if present)
 # =================================================
-st.subheader("🟣 Severity Distribution")
+if "Severity" in df.columns:
+    st.subheader("🟣 Severity Distribution")
 
-sev_counts = df["Severity"].value_counts().reset_index()
-sev_counts.columns = ["Severity", "Count"]
+    sev_counts = df["Severity"].value_counts().reset_index()
+    sev_counts.columns = ["Severity", "Count"]
 
-pie = px.pie(
-    sev_counts,
-    names="Severity",
-    values="Count",
-    color="Severity",
-    color_discrete_map={
-        "Major Regression": "#ff4d4d",
-        "Moderate Regression": "#ff944d",
-        "Minor Regression": "#ffe066",
-        "Improvement": "#66cc66",
-        "No Change": "#cccccc",
-        "NA": "#999999",
-    },
-)
-st.plotly_chart(pie, use_container_width=True)
+    fig = px.pie(
+        sev_counts,
+        names="Severity",
+        values="Count",
+        color="Severity"
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
 
 # =================================================
-# ✅ Export
+# Export filtered view
 # =================================================
+st.subheader("📤 Export")
+
 def to_excel(d):
-    out = BytesIO()
-    with pd.ExcelWriter(out, engine="openpyxl") as w:
-        d.to_excel(w, index=False)
-    return out.getvalue()
+    return d.to_excel(index=False)
 
 st.download_button(
-    "⬇️ Download Filtered Excel",
+    "⬇️ Download Filtered Data (Excel)",
     data=to_excel(view),
     file_name=f"{selected_report}_Filtered.xlsx",
-    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 )
