@@ -1,4 +1,7 @@
-import streamlit as stimport streamlit asimport os
+import streamlit as st
+import pandas as pd
+import glob
+import os
 import plotly.express as px
 import numpy as np
 import re
@@ -110,7 +113,7 @@ else:
     df["diff_percent"] = np.nan
 
 # =================================================
-# Compute Severity
+# Compute Severity from Diff %
 # =================================================
 def classify_severity(p):
     if pd.isna(p):
@@ -167,7 +170,7 @@ if search:
     ]
 
 # =================================================
-# Diff table with color coding
+# Diff Table with color coding (Pandas 3.x safe)
 # =================================================
 st.subheader("📋 Diff Table")
 
@@ -192,7 +195,7 @@ st.dataframe(
 )
 
 # =================================================
-# New Failures (Pass → Fail) — FIXED ✅
+# New Failures (Pass → Fail)
 # =================================================
 status_cols = [c for c in df.columns if c.endswith(selected_market)]
 
@@ -226,13 +229,12 @@ if len(status_cols) >= 2 and old_err and new_err:
     )
 
 # =================================================
-# Severity Pie Chart
+# Severity Pie Chart with percentages
 # =================================================
 st.subheader("🟣 Severity Distribution")
 
 sev_counts = df["Severity"].value_counts().reset_index()
 sev_counts.columns = ["Severity", "Count"]
-sev_counts["Percent"] = (sev_counts["Count"] / sev_counts["Count"].sum() * 100).round(1)
 
 fig = px.pie(
     sev_counts,
@@ -257,5 +259,3 @@ st.download_button(
     file_name=f"{selected_report}_Filtered.xlsx",
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 )
-import pandas as pd
-import glob
