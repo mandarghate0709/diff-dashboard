@@ -47,7 +47,7 @@ for f in files:
     market_map.setdefault(market, {})[clean_report_name(f)] = f
 
 # =================================================
-# Sidebar selection + SEARCH (RESTORED ✅)
+# Sidebar controls (RESTORED ✅)
 # =================================================
 st.sidebar.header("📁 Select Report")
 
@@ -61,7 +61,13 @@ selected_report = st.sidebar.selectbox(
     sorted(market_map[selected_market].keys())
 )
 
-# ✅ Search box (this was missing)
+# ✅ All / Regressions / Improvements selector (RESTORED)
+view_mode = st.sidebar.radio(
+    "Show",
+    ["All Tests", "Only Regressions", "Only Improvements"]
+)
+
+# ✅ Search box
 search_text = st.sidebar.text_input(
     "🔎 Search Test ID / Name",
     placeholder="Type testId or test name..."
@@ -113,7 +119,7 @@ new_err = f"{new_rel}_{selected_market}_errors"
 # ✅ Correct diff % logic (FINAL)
 # =================================================
 def compute_diff_percent(row):
-    # NA only when Old=Pass, OldErr=0, NewErr>0
+    # NA only when Old=Pass AND OldErr=0 AND NewErr>0
     if row[old_status] == "Pass" and row[old_err] == 0 and row[new_err] > 0:
         return np.nan
 
@@ -154,9 +160,15 @@ c3.metric("Improvements", (df["diff"] < 0).sum())
 c4.metric("No Change", (df["diff"] == 0).sum())
 
 # =================================================
-# Apply search filter (GLOBAL ✅)
+# Apply global filters (mode + search)
 # =================================================
 view = df.copy()
+
+if view_mode == "Only Regressions":
+    view = view[view["diff"] > 0]
+elif view_mode == "Only Improvements":
+    view = view[view["diff"] < 0]
+
 if search_text:
     view = view[
         view["testId"].str.contains(search_text, case=False, na=False) |
@@ -194,6 +206,12 @@ nf = df[
     (df[old_status] == "Pass") &
     (df[new_status] == "Fail")
 ].copy()
+
+# Apply same filters to New Failures
+if view_mode == "Only Regressions":
+    nf = nf[nf["diff"] > 0]
+elif view_mode == "Only Improvements":
+    nf = nf[nf["diff"] < 0]
 
 if search_text:
     nf = nf[
