@@ -47,7 +47,7 @@ for f in files:
     market_map.setdefault(market, {})[clean_report_name(f)] = f
 
 # =================================================
-# Sidebar controls (RESTORED ✅)
+# Sidebar controls
 # =================================================
 st.sidebar.header("📁 Select Report")
 
@@ -61,13 +61,11 @@ selected_report = st.sidebar.selectbox(
     sorted(market_map[selected_market].keys())
 )
 
-# ✅ All / Regressions / Improvements selector (RESTORED)
 view_mode = st.sidebar.radio(
     "Show",
     ["All Tests", "Only Regressions", "Only Improvements"]
 )
 
-# ✅ Search box
 search_text = st.sidebar.text_input(
     "🔎 Search Test ID / Name",
     placeholder="Type testId or test name..."
@@ -116,16 +114,13 @@ old_err = f"{old_rel}_{selected_market}_errors"
 new_err = f"{new_rel}_{selected_market}_errors"
 
 # =================================================
-# ✅ Correct diff % logic (FINAL)
+# Correct diff % logic
 # =================================================
 def compute_diff_percent(row):
-    # NA only when Old=Pass AND OldErr=0 AND NewErr>0
     if row[old_status] == "Pass" and row[old_err] == 0 and row[new_err] > 0:
         return np.nan
-
     if row[old_err] != 0:
         return round((row["diff"] / row[old_err]) * 100, 2)
-
     return np.nan
 
 df["diff_percent"] = df.apply(compute_diff_percent, axis=1)
@@ -160,7 +155,7 @@ c3.metric("Improvements", (df["diff"] < 0).sum())
 c4.metric("No Change", (df["diff"] == 0).sum())
 
 # =================================================
-# Apply global filters (mode + search)
+# Apply global filters
 # =================================================
 view = df.copy()
 
@@ -176,7 +171,7 @@ if search_text:
     ]
 
 # =================================================
-# Diff Table with color coding
+# Diff Table
 # =================================================
 st.subheader("📋 Diff Table")
 
@@ -198,7 +193,7 @@ st.dataframe(
 )
 
 # =================================================
-# New Failures (Pass → Fail)
+# ✅ New Failures (Pass → Fail) — Bug Ticket INCLUDED
 # =================================================
 st.subheader("🆕 New Failures (Pass → Fail)")
 
@@ -207,7 +202,6 @@ nf = df[
     (df[new_status] == "Fail")
 ].copy()
 
-# Apply same filters to New Failures
 if view_mode == "Only Regressions":
     nf = nf[nf["diff"] > 0]
 elif view_mode == "Only Improvements":
@@ -232,6 +226,7 @@ nf_view = nf[
         "diff",
         "diff_percent",
         "Severity",
+        "Bug Ticket",
         "Jira Link",
     ]
 ]
