@@ -87,9 +87,9 @@ ticket_re = re.compile(r"(HERESUP-\d+)")
 def ticket_to_url(val):
     if pd.isna(val):
         return None
-    m = ticket_re.search(str(val))
-    if m:
-        return f"{JIRA_BASE}{m.group(1)}"
+    match = ticket_re.search(str(val))
+    if match:
+        return f"{JIRA_BASE}{match.group(1)}"
     return None
 
 df["Jira Link"] = df["Bug Ticket"].apply(ticket_to_url)
@@ -104,27 +104,20 @@ old_status, new_status = status_cols[:2] if len(status_cols) >= 2 else (None, No
 old_err, new_err = error_cols[:2] if len(error_cols) >= 2 else (None, None)
 
 # =================================================
-# ✅ FIXED Diff % logic (STATUS‑BASED)
+# Compute Diff %
 # =================================================
 def compute_diff_percent(row):
-    # Pass → Fail ALWAYS NA
-    if (
-        old_status and new_status and
-        row[old_status] == "Pass" and
-        row[new_status] == "Fail"
-    ):
-        return np.nan
-
-    # Normal calculation
+    if old_status and new_status:
+        if row[old_status] == "Pass" and row[new_status] == "Fail":
+            return np.nan
     if old_err and row[old_err] and row[old_err] != 0:
         return round((row["diff"] / row[old_err]) * 100, 2)
-
     return np.nan
 
 df["diff_percent"] = df.apply(compute_diff_percent, axis=1)
 
 # =================================================
-# ✅ Severity from diff %
+# Compute Severity
 # =================================================
 def classify_severity(p):
     if pd.isna(p):
@@ -181,7 +174,7 @@ if search:
     ]
 
 # =================================================
-# Diff Table with color coding
+# Diff Table with color coding (Pandas 3.x safe)
 # =================================================
 st.subheader("📋 Diff Table")
 
@@ -198,7 +191,10 @@ st.dataframe(
     styled_main,
     use_container_width=True,
     column_config={
-        "Jira Link": st.column_config.LinkColumn("Jira", display_text="🔗")
+        "Jira Link": st.column_config.LinkColumn(
+            "Jira",
+            display_text="🔗"
+        )
     }
 )
 
@@ -236,12 +232,15 @@ if old_status and new_status and old_err and new_err:
         styled_nf,
         use_container_width=True,
         column_config={
-            "Jira Link": st.column_config.LinkColumn("Jira", display_text="🔗")
+            "Jira Link": st.column_config.LinkColumn(
+                "Jira",
+                display_text="🔗"
+            )
         }
     )
 
 # =================================================
-# Severity Pie Chart with percentages
+# Severity Pie Chart
 # =================================================
 st.subheader("🟣 Severity Distribution")
 
@@ -272,4 +271,3 @@ st.download_button(
     file_name=f"{selected_report}_Filtered.xlsx",
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 )
-``
