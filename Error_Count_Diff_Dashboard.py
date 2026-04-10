@@ -107,6 +107,7 @@ old_err, new_err = error_cols[:2] if len(error_cols) >= 2 else (None, None)
 # Compute Diff %
 # =================================================
 def compute_diff_percent(row):
+    # Pass → Fail should be NA
     if old_status and new_status:
         if row[old_status] == "Pass" and row[new_status] == "Fail":
             return np.nan
@@ -174,7 +175,7 @@ if search:
     ]
 
 # =================================================
-# Diff Table with color coding (Pandas 3.x safe)
+# Diff Table with color coding
 # =================================================
 st.subheader("📋 Diff Table")
 
@@ -255,6 +256,32 @@ fig = px.pie(
 fig.update_traces(textinfo="label+percent")
 
 st.plotly_chart(fig, use_container_width=True)
+
+# =================================================
+# ✅ Regression Severity Criteria (NEW)
+# =================================================
+st.subheader("ℹ️ Regression Severity Criteria")
+
+criteria_df = pd.DataFrame({
+    "Regression Type": [
+        "Minor Regression",
+        "Moderate Regression",
+        "Major Regression",
+        "Improvement",
+        "No Change",
+        "NA (Pass → Fail)"
+    ],
+    "Diff % Criteria": [
+        "0% < Diff % ≤ 5%",
+        "5% < Diff % ≤ 10%",
+        "Diff % > 10%",
+        "Diff % < 0",
+        "Diff % = 0",
+        "Old = Pass and New = Fail"
+    ]
+})
+
+st.table(criteria_df)
 
 # =================================================
 # Export
