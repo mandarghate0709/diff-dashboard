@@ -1,7 +1,4 @@
-import streamlit as st
-import pandas as pd
-import glob
-import os
+import streamlit as stimport streamlit asimport os
 import plotly.express as px
 import numpy as np
 import re
@@ -79,7 +76,7 @@ if "Bug Ticket" not in df.columns:
     df["Bug Ticket"] = np.nan
 
 # =================================================
-# Jira link column (stable)
+# Jira link column
 # =================================================
 JIRA_BASE = "https://here-technologies.atlassian.net/browse/"
 ticket_re = re.compile(r"(HERESUP-\d+)")
@@ -98,10 +95,7 @@ df["Jira Link"] = df["Bug Ticket"].apply(ticket_to_url)
 # Detect error columns
 # =================================================
 error_cols = [c for c in df.columns if c.endswith("_errors")]
-if len(error_cols) >= 2:
-    old_err, new_err = error_cols[:2]
-else:
-    old_err, new_err = None, None
+old_err, new_err = error_cols[:2] if len(error_cols) >= 2 else (None, None)
 
 # =================================================
 # Compute Diff %
@@ -116,10 +110,9 @@ else:
     df["diff_percent"] = np.nan
 
 # =================================================
-# Compute Severity from Diff %
+# Compute Severity
 # =================================================
-def classify_severity(row):
-    p = row["diff_percent"]
+def classify_severity(p):
     if pd.isna(p):
         return "NA"
     if p < 0:
@@ -132,7 +125,7 @@ def classify_severity(row):
         return "Moderate Regression"
     return "Major Regression"
 
-df["Severity"] = df.apply(classify_severity, axis=1)
+df["Severity"] = df["diff_percent"].apply(classify_severity)
 
 # =================================================
 # Summary
@@ -185,10 +178,10 @@ def color_diff(val):
         return "background-color:#C6EFCE"
     return ""
 
-styled = view.style.map(color_diff, subset=["diff"])
+styled_main = view.style.map(color_diff, subset=["diff"])
 
 st.dataframe(
-    styled,
+    styled_main,
     use_container_width=True,
     column_config={
         "Jira Link": st.column_config.LinkColumn(
@@ -199,7 +192,7 @@ st.dataframe(
 )
 
 # =================================================
-# New Failures (Pass → Fail)
+# New Failures (Pass → Fail) — FIXED ✅
 # =================================================
 status_cols = [c for c in df.columns if c.endswith(selected_market)]
 
@@ -215,12 +208,14 @@ if len(status_cols) >= 2 and old_err and new_err:
 
     nf["Jira Link"] = nf["Bug Ticket"].apply(ticket_to_url)
 
-    styled_nf = nf.style.map(color_diff, subset=["diff"])
+    nf_view = nf[
+        ["testId", "testName", old_err, new_err, "diff", "diff_percent", "Severity", "Jira Link"]
+    ]
+
+    styled_nf = nf_view.style.map(color_diff, subset=["diff"])
 
     st.dataframe(
-        styled_nf[
-            ["testId", "testName", old_err, new_err, "diff", "diff_percent", "Severity", "Jira Link"]
-        ],
+        styled_nf,
         use_container_width=True,
         column_config={
             "Jira Link": st.column_config.LinkColumn(
@@ -231,7 +226,7 @@ if len(status_cols) >= 2 and old_err and new_err:
     )
 
 # =================================================
-# Severity Pie Chart with percentages
+# Severity Pie Chart
 # =================================================
 st.subheader("🟣 Severity Distribution")
 
@@ -242,18 +237,9 @@ sev_counts["Percent"] = (sev_counts["Count"] / sev_counts["Count"].sum() * 100).
 fig = px.pie(
     sev_counts,
     names="Severity",
-    values="Count",
-    hover_data=["Percent"],
-    labels={
-        "Severity": "Severity",
-        "Count": "Count"
-    }
+    values="Count"
 )
-
-fig.update_traces(
-    textinfo="label+percent"
-)
-
+fig.update_traces(textinfo="label+percent")
 st.plotly_chart(fig, use_container_width=True)
 
 # =================================================
@@ -271,3 +257,5 @@ st.download_button(
     file_name=f"{selected_report}_Filtered.xlsx",
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 )
+import pandas as pd
+import glob
