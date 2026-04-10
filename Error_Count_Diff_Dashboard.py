@@ -73,13 +73,13 @@ st.write(
 )
 
 # =================================================
-# Ensure required columns
+# Ensure Bug Ticket column exists
 # =================================================
 if "Bug Ticket" not in df.columns:
     df["Bug Ticket"] = np.nan
 
 # =================================================
-# Jira link column (stable)
+# Jira link column
 # =================================================
 JIRA_BASE = "https://here-technologies.atlassian.net/browse/"
 ticket_re = re.compile(r"(HERESUP-\d+)")
@@ -99,7 +99,7 @@ df["Jira Link"] = df["Bug Ticket"].apply(ticket_to_url)
 # =================================================
 if "Severity" not in df.columns:
     def classify_severity(row):
-        if "diff_percent" in row and not pd.isna(row["diff_percent"]):
+        if "diff_percent" in row and not pd.isna(row.get("diff_percent")):
             p = row["diff_percent"]
             if p > 10:
                 return "Major Regression"
@@ -157,7 +157,7 @@ if search:
     ]
 
 # =================================================
-# Diff Table with COLOR CODING
+# Diff Table with COLOR CODING (Pandas 3.x FIX ✅)
 # =================================================
 st.subheader("📋 Diff Table")
 
@@ -168,7 +168,7 @@ def color_diff(val):
         return "background-color: #C6EFCE"
     return ""
 
-styled = view.style.applymap(color_diff, subset=["diff"])
+styled = view.style.map(color_diff, subset=["diff"])
 
 st.dataframe(
     styled,
@@ -176,13 +176,14 @@ st.dataframe(
     column_config={
         "Jira Link": st.column_config.LinkColumn(
             "Jira",
-            display_text="🔗"
+            display_text="🔗",
+            help="Open HERESUP ticket"
         )
     }
 )
 
 # =================================================
-# New Failures (Pass → Fail) WITH ERROR COUNTS
+# New Failures (Pass → Fail) WITH old/new errors
 # =================================================
 status_cols = [c for c in df.columns if c.endswith(selected_market)]
 error_cols = [c for c in df.columns if c.endswith("_errors")]
@@ -217,7 +218,7 @@ if len(status_cols) >= 2 and len(error_cols) >= 2:
         )
 
 # =================================================
-# Severity Pie Chart
+# Severity Pie Chart (RESTORED ✅)
 # =================================================
 st.subheader("🟣 Severity Distribution")
 
