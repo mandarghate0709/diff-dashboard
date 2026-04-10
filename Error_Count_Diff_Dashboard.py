@@ -2,9 +2,10 @@ import streamlit as st
 import pandas as pd
 import glob
 import os
-import re
-import numpy as np
 import plotly.express as px
+import numpy as np
+import re
+from io import BytesIO
 
 # =================================================
 # Streamlit setup
@@ -28,11 +29,14 @@ if not files:
 # Error_Count_Diff_P173_vs_261E0_NAR.xlsx
 # =================================================
 def extract_market(filename: str) -> str:
-    return os.path.basename(filename).replace(".xlsx", "").split("_")[-1]
+    base = os.path.basename(filename).replace(".xlsx", "")
+    return base.split("_")[-1]
 
 def clean_report_name(filename: str) -> str:
     base = os.path.basename(filename)
-    return base.replace("Error_Count_Diff_", "").replace(".xlsx", "")
+    base = base.replace("Error_Count_Diff_", "")
+    base = base.replace(".xlsx", "")
+    return base
 
 # =================================================
 # Build Market → Report mapping
@@ -41,23 +45,19 @@ market_map = {}
 
 for f in files:
     market = extract_market(f)
-    report = clean_report_name(f)
-    market_map.setdefault(market, {})[report] = f
+    report_name = clean_report_name(f)
+    market_map.setdefault(market, {})[report_name] = f
 
 # =================================================
 # Sidebar selection
 # =================================================
 st.sidebar.header("📁 Select Report")
 
-selected_market = st.sidebar.selectbox(
-    "Select Market",
-    sorted(market_map.keys())
-)
+markets = sorted(market_map.keys())
+selected_market = st.sidebar.selectbox("Select Market", markets)
 
-selected_report = st.sidebar.selectbox(
-    "Select Report",
-    sorted(market_map[selected_market].keys())
-)
+reports = sorted(market_map[selected_market].keys())
+selected_report = st.sidebar.selectbox("Select Report", reports)
 
 selected_file = market_map[selected_market][selected_report]
 
@@ -78,7 +78,7 @@ if "Bug Ticket" not in df.columns:
     df["Bug Ticket"] = np.nan
 
 # =================================================
-# Convert HERESUP ticket → Jira URL
+# Convert HERESUP → Jira URL (for LinkColumn)
 # =================================================
 JIRA_BASE = "https://here-technologies.atlassian.net/browse/"
 ticket_re = re.compile(r"(HERESUP-\d+)")
@@ -86,8 +86,7 @@ ticket_re = re.compile(r"(HERESUP-\d+)")
 def ticket_to_url(val):
     if pd.isna(val):
         return None
-    text = str(val)
-    m = ticket_re.search(text)
+    m = ticket_re.search(str(val))
     if m:
         return f"{JIRA_BASE}{m.group(1)}"
     return None
@@ -95,7 +94,7 @@ def ticket_to_url(val):
 df["Bug Ticket Link"] = df["Bug Ticket"].apply(ticket_to_url)
 
 # =================================================
-# Summary
+# Summary section
 # =================================================
 st.subheader("📦 Summary")
 
@@ -106,7 +105,7 @@ c3.metric("Improvements (diff < 0)", (df["diff"] < 0).sum())
 c4.metric("No Change (diff = 0)", (df["diff"] == 0).sum())
 
 # =================================================
-# Filters
+# Sidebar filters
 # =================================================
 st.sidebar.header("🔍 Filters")
 
@@ -143,7 +142,7 @@ if search:
     ]
 
 # =================================================
-# Main Diff Table (CLICKABLE HERESUP LINKS ✅)
+# Diff table (HERESUP text is clickable ✅)
 # =================================================
 st.subheader("📋 Diff Table")
 
@@ -163,7 +162,7 @@ st.dataframe(
     column_config={
         "Bug Ticket Link": st.column_config.LinkColumn(
             "Bug Ticket",
-            display_text="Open Ticket",
+            display_text=r"HERESUP-\d+",
             help="Click to open HERESUP Jira ticket"
         )
     }
@@ -172,7 +171,11 @@ st.dataframe(
 # =================================================
 # New Failures (Pass → Fail)
 # =================================================
-status_cols = [c for c in df.columns if c.endswith(selected_market)]
+status_cols = [
+    c for c in df.columns
+    if c not in display_cols and c.endswith(selected_market)
+]
+
 if len(status_cols) >= 2:
     old_status, new_status = status_cols[:2]
 
@@ -188,6 +191,7 @@ if len(status_cols) >= 2:
     if nf.empty:
         st.info("No new Pass → Fail cases detected.")
     else:
+        st.write(f"**Total New Failures:** {len(nf)}")
         st.dataframe(
             nf[
                 ["testId", "testName", "diff", "Bug Ticket Link"]
@@ -196,31 +200,41 @@ if len(status_cols) >= 2:
             column_config={
                 "Bug Ticket Link": st.column_config.LinkColumn(
                     "Bug Ticket",
-                    display_text="Open Ticket"
+                    display_text=r"HERESUP-\d+"
                 )
             }
         )
 
 # =================================================
-# Severity Pie Chart (optional)
+# Severity Pie Chart (if present)
 # =================================================
 if "Severity" in df.columns:
     st.subheader("🟣 Severity Distribution")
 
-    sev = df["Severity"].value_counts().reset_index()
-    sev.columns = ["Severity", "Count"]
+    sev_counts = df["Severity"].value_counts().reset_index()
+    sev_counts.columns = ["Severity", "Count"]
 
-    fig = px.pie(sev, names="Severity", values="Count")
+    fig = px.pie(
+        sev_counts,
+        names="Severity",
+        values="Count",
+        color="Severity"
+    )
+
     st.plotly_chart(fig, use_container_width=True)
 
 # =================================================
-# Export
+# Export filtered view (FIXED)
 # =================================================
 st.subheader("📤 Export")
 
+buffer = BytesIO()
+view.to_excel(buffer, index=False)
+buffer.seek(0)
+
 st.download_button(
     "⬇️ Download Filtered Data (Excel)",
-    data=view.to_excel(index=False),
+    data=buffer,
     file_name=f"{selected_report}_Filtered.xlsx",
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 )
