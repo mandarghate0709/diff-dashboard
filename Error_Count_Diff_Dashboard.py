@@ -25,7 +25,6 @@ if not files:
 
 # =================================================
 # Filename helpers
-# Error_Count_Diff_P173_vs_261E0_NAR.xlsx
 # =================================================
 def extract_market(filename: str) -> str:
     return os.path.basename(filename).replace(".xlsx", "").split("_")[-1]
@@ -34,16 +33,10 @@ def extract_releases(filename: str):
     base = os.path.basename(filename).replace(".xlsx", "")
     parts = base.split("_")
     # Error_Count_Diff_<OLD>_vs_<NEW>_<MARKET>
-    old_rel = parts[3]
-    new_rel = parts[5]
-    return old_rel, new_rel
+    return parts[3], parts[5]
 
 def clean_report_name(filename: str) -> str:
-    return (
-        os.path.basename(filename)
-        .replace("Error_Count_Diff_", "")
-        .replace(".xlsx", "")
-    )
+    return os.path.basename(filename).replace("Error_Count_Diff_", "").replace(".xlsx", "")
 
 # =================================================
 # Market → Report mapping
@@ -51,11 +44,10 @@ def clean_report_name(filename: str) -> str:
 market_map = {}
 for f in files:
     market = extract_market(f)
-    report = clean_report_name(f)
-    market_map.setdefault(market, {})[report] = f
+    market_map.setdefault(market, {})[clean_report_name(f)] = f
 
 # =================================================
-# Sidebar selection
+# Sidebar selection + SEARCH (RESTORED ✅)
 # =================================================
 st.sidebar.header("📁 Select Report")
 
@@ -69,13 +61,18 @@ selected_report = st.sidebar.selectbox(
     sorted(market_map[selected_market].keys())
 )
 
+# ✅ Search box (this was missing)
+search_text = st.sidebar.text_input(
+    "🔎 Search Test ID / Name",
+    placeholder="Type testId or test name..."
+)
+
 selected_file = market_map[selected_market][selected_report]
 
 # =================================================
 # Load report
 # =================================================
 df = pd.read_excel(selected_file)
-
 old_rel, new_rel = extract_releases(selected_file)
 
 st.write(
@@ -98,15 +95,13 @@ ticket_re = re.compile(r"(HERESUP-\d+)")
 def ticket_to_url(val):
     if pd.isna(val):
         return None
-    match = ticket_re.search(str(val))
-    if match:
-        return f"{JIRA_BASE}{match.group(1)}"
-    return None
+    m = ticket_re.search(str(val))
+    return f"{JIRA_BASE}{m.group(1)}" if m else None
 
 df["Jira Link"] = df["Bug Ticket"].apply(ticket_to_url)
 
 # =================================================
-# ✅ CORRECTLY bind OLD/NEW status & error columns
+# Bind correct OLD / NEW status & error columns
 # =================================================
 old_status = f"{old_rel}_{selected_market}"
 new_status = f"{new_rel}_{selected_market}"
@@ -115,15 +110,11 @@ old_err = f"{old_rel}_{selected_market}_errors"
 new_err = f"{new_rel}_{selected_market}_errors"
 
 # =================================================
-# ✅ FINAL diff % LOGIC (NOW 100% CORRECT)
+# ✅ Correct diff % logic (FINAL)
 # =================================================
 def compute_diff_percent(row):
-    # Old Pass + Old errors = 0 + New errors > 0 → NA
-    if (
-        row[old_status] == "Pass" and
-        row[old_err] == 0 and
-        row[new_err] > 0
-    ):
+    # NA only when Old=Pass, OldErr=0, NewErr>0
+    if row[old_status] == "Pass" and row[old_err] == 0 and row[new_err] > 0:
         return np.nan
 
     if row[old_err] != 0:
@@ -163,21 +154,14 @@ c3.metric("Improvements", (df["diff"] < 0).sum())
 c4.metric("No Change", (df["diff"] == 0).sum())
 
 # =================================================
-# Filters
+# Apply search filter (GLOBAL ✅)
 # =================================================
-st.sidebar.header("🔍 Filters")
-
-mode = st.sidebar.radio(
-    "Show",
-    ["All", "Only Regressions", "Only Improvements"]
-)
-
 view = df.copy()
-
-if mode == "Only Regressions":
-    view = view[view["diff"] > 0]
-elif mode == "Only Improvements":
-    view = view[view["diff"] < 0]
+if search_text:
+    view = view[
+        view["testId"].str.contains(search_text, case=False, na=False) |
+        view["testName"].str.contains(search_text, case=False, na=False)
+    ]
 
 # =================================================
 # Diff Table with color coding
@@ -210,6 +194,12 @@ nf = df[
     (df[old_status] == "Pass") &
     (df[new_status] == "Fail")
 ].copy()
+
+if search_text:
+    nf = nf[
+        nf["testId"].str.contains(search_text, case=False, na=False) |
+        nf["testName"].str.contains(search_text, case=False, na=False)
+    ]
 
 nf["Jira Link"] = nf["Bug Ticket"].apply(ticket_to_url)
 
