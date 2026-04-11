@@ -115,7 +115,7 @@ def ticket_to_url(val):
 df["Jira Link"] = df["Bug Ticket"].apply(ticket_to_url)
 
 # =================================================
-# Bind correct OLD / NEW status & error columns
+# Bind OLD / NEW status & error columns
 # =================================================
 
 old_status = f"{old_rel}_{selected_market}"
@@ -137,7 +137,7 @@ def compute_diff_percent(row):
 df["diff_percent"] = df.apply(compute_diff_percent, axis=1)
 
 # =================================================
-# Severity
+# Severity classification
 # =================================================
 
 def classify_severity(p):
@@ -160,6 +160,7 @@ df["Severity"] = df["diff_percent"].apply(classify_severity)
 # =================================================
 
 st.subheader("📦 Summary")
+
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Total Tests", len(df))
 c2.metric("Regressions", (df["diff"] > 0).sum())
@@ -196,10 +197,7 @@ def color_diff(val):
         return "background-color:#C6EFCE"
     return ""
 
-display_cols = [
-    c for c in view.columns
-    if c not in ["Bug Comment"]
-]
+display_cols = [c for c in view.columns if c not in ["Bug Comment"]]
 
 styled_main = view[display_cols].style.map(color_diff, subset=["diff"])
 
@@ -212,7 +210,7 @@ st.dataframe(
 )
 
 # =================================================
-# 🆕 New Failures (Pass → Fail) — RESTORED
+# 🆕 New Failures (Pass → Fail)
 # =================================================
 
 st.subheader("🆕 New Failures (Pass → Fail)")
@@ -260,7 +258,7 @@ st.dataframe(
 )
 
 # =================================================
-# 🧾 Failure Details (Bug Comments) — NEW
+# 🧾 Failure Details (Bug Comments)
 # =================================================
 
 st.subheader("🧾 Failure Details (Bug Comments)")
@@ -283,23 +281,36 @@ else:
             st.code(row["Bug Comment"], language="text")
 
 # =================================================
-# Severity Pie Chart
+# ℹ️ Regression Severity Criteria (RESTORED)
 # =================================================
 
-st.subheader("🟣 Severity Distribution")
+st.subheader("ℹ️ Regression Severity Criteria")
 
-sev_counts = df["Severity"].value_counts().reset_index()
-sev_counts.columns = ["Severity", "Count"]
-fig = px.pie(sev_counts, names="Severity", values="Count")
-fig.update_traces(textinfo="label+percent")
+criteria_df = pd.DataFrame({
+    "Regression Type": [
+        "Minor Regression",
+        "Moderate Regression",
+        "Major Regression",
+        "Improvement",
+        "No Change"
+    ],
+    "Diff % Criteria": [
+        "0% < Diff % ≤ 5%",
+        "5% < Diff % ≤ 10%",
+        "Diff % > 10%",
+        "Diff % < 0",
+        "Diff % = 0"
+    ]
+})
 
-st.plotly_chart(fig, use_container_width=True)
+st.table(criteria_df)
 
 # =================================================
 # Export
 # =================================================
 
 st.subheader("📤 Export")
+
 buffer = BytesIO()
 view[display_cols].to_excel(buffer, index=False)
 buffer.seek(0)
