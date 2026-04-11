@@ -197,7 +197,8 @@ def color_diff(val):
         return "background-color:#C6EFCE"
     return ""
 
-styled_main = view.style.applymap(color_diff, subset=["diff"])
+# ✅ FIXED: applymap → map (Pandas ≥ 2.1)
+styled_main = view.style.map(color_diff, subset=["diff"])
 
 st.dataframe(
     styled_main,
@@ -246,7 +247,6 @@ sev_counts.columns = ["Severity", "Count"]
 
 fig = px.pie(sev_counts, names="Severity", values="Count")
 fig.update_traces(textinfo="label+percent")
-
 st.plotly_chart(fig, use_container_width=True)
 
 # =================================================
