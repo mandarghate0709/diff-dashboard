@@ -137,7 +137,7 @@ def compute_diff_percent(row):
 df["diff_percent"] = df.apply(compute_diff_percent, axis=1)
 
 # =================================================
-# Severity classification
+# Severity
 # =================================================
 
 def classify_severity(p):
@@ -185,7 +185,7 @@ if search_text:
     ]
 
 # =================================================
-# Diff Table (Bug Comment NOT shown)
+# Diff Table
 # =================================================
 
 st.subheader("📋 Diff Table")
@@ -281,7 +281,20 @@ else:
             st.code(row["Bug Comment"], language="text")
 
 # =================================================
-# ℹ️ Regression Severity Criteria (RESTORED)
+# 🟣 Severity Pie Chart (RESTORED ✅)
+# =================================================
+
+st.subheader("🟣 Severity Distribution")
+
+sev_counts = df["Severity"].value_counts().reset_index()
+sev_counts.columns = ["Severity", "Count"]
+
+fig = px.pie(sev_counts, names="Severity", values="Count")
+fig.update_traces(textinfo="label+percent")
+st.plotly_chart(fig, use_container_width=True)
+
+# =================================================
+# ℹ️ Regression Severity Criteria
 # =================================================
 
 st.subheader("ℹ️ Regression Severity Criteria")
