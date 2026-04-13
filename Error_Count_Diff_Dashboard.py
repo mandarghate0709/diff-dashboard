@@ -180,7 +180,7 @@ if search_text:
     ]
 
 # =================================================
-# Diff Table
+# Diff Table (horizontal scroll)
 # =================================================
 
 st.subheader("📋 Diff Table")
@@ -200,12 +200,11 @@ st.dataframe(
     use_container_width=True,
     column_config={
         "Jira Link": st.column_config.LinkColumn("Jira", display_text="🔗")
-    },
-    height=500  # ✅ scrollable
+    }
 )
 
 # =================================================
-# 🆕 New Failures (Pass → Fail) — NOW SCROLLABLE ✅
+# 🆕 New Failures (Pass → Fail) — FINAL FIX ✅
 # =================================================
 
 st.subheader("🆕 New Failures (Pass → Fail)")
@@ -225,17 +224,17 @@ nf_view = nf[
 
 styled_nf = nf_view.style.map(color_diff, subset=["diff"])
 
+# ✅ NO height ⇒ clean horizontal scrolling only
 st.dataframe(
     styled_nf,
     use_container_width=True,
     column_config={
         "Jira Link": st.column_config.LinkColumn("Jira", display_text="🔗")
-    },
-    height=400  # ✅ FIX: scrollbar added
+    }
 )
 
 # =================================================
-# 🧾 Failure Details (Bug Comments)
+# 🧾 Failure Details
 # =================================================
 
 st.subheader("🧾 Failure Details (Bug Comments)")
