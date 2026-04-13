@@ -55,25 +55,14 @@ for f in files:
 
 st.sidebar.header("📁 Select Report")
 
-selected_market = st.sidebar.selectbox(
-    "Select Market",
-    sorted(market_map.keys())
-)
-
+selected_market = st.sidebar.selectbox("Select Market", sorted(market_map.keys()))
 selected_report = st.sidebar.selectbox(
     "Select Report",
     sorted(market_map[selected_market].keys())
 )
 
-view_mode = st.sidebar.radio(
-    "Show",
-    ["All Tests", "Only Regressions", "Only Improvements"]
-)
-
-search_text = st.sidebar.text_input(
-    "🔎 Search Test ID / Name",
-    placeholder="Type testId or test name..."
-)
+view_mode = st.sidebar.radio("Show", ["All Tests", "Only Regressions", "Only Improvements"])
+search_text = st.sidebar.text_input("🔎 Search Test ID / Name")
 
 selected_file = market_map[selected_market][selected_report]
 
@@ -152,22 +141,10 @@ def classify_severity(p):
 df["Severity"] = df["diff_percent"].apply(classify_severity)
 
 # =================================================
-# Summary
-# =================================================
-
-st.subheader("📦 Summary")
-c1, c2, c3, c4 = st.columns(4)
-c1.metric("Total Tests", len(df))
-c2.metric("Regressions", (df["diff"] > 0).sum())
-c3.metric("Improvements", (df["diff"] < 0).sum())
-c4.metric("No Change", (df["diff"] == 0).sum())
-
-# =================================================
 # Filters
 # =================================================
 
 view = df.copy()
-
 if view_mode == "Only Regressions":
     view = view[view["diff"] > 0]
 elif view_mode == "Only Improvements":
@@ -180,7 +157,7 @@ if search_text:
     ]
 
 # =================================================
-# Diff Table (horizontal scroll)
+# Diff Table (auto horizontal scroll)
 # =================================================
 
 st.subheader("📋 Diff Table")
@@ -198,13 +175,11 @@ styled_main = view[display_cols].style.map(color_diff, subset=["diff"])
 st.dataframe(
     styled_main,
     use_container_width=True,
-    column_config={
-        "Jira Link": st.column_config.LinkColumn("Jira", display_text="🔗")
-    }
+    column_config={"Jira Link": st.column_config.LinkColumn("Jira", display_text="🔗")}
 )
 
 # =================================================
-# 🆕 New Failures (Pass → Fail) — FINAL FIX ✅
+# 🆕 New Failures (Pass → Fail) ✅ FIXED
 # =================================================
 
 st.subheader("🆕 New Failures (Pass → Fail)")
@@ -217,40 +192,18 @@ nf_view = nf[
         old_status, new_status,
         old_err, new_err,
         "diff", "diff_percent",
-        "Severity",
-        "Bug Ticket", "Jira Link"
+        "Severity", "Bug Ticket", "Jira Link"
     ]
 ]
 
 styled_nf = nf_view.style.map(color_diff, subset=["diff"])
 
-# ✅ NO height ⇒ clean horizontal scrolling only
+# ✅ KEY FIX: do NOT force container width
 st.dataframe(
     styled_nf,
-    use_container_width=True,
-    column_config={
-        "Jira Link": st.column_config.LinkColumn("Jira", display_text="🔗")
-    }
+    use_container_width=False,   # <-- THIS enables horizontal scrolling
+    column_config={"Jira Link": st.column_config.LinkColumn("Jira", display_text="🔗")}
 )
-
-# =================================================
-# 🧾 Failure Details
-# =================================================
-
-st.subheader("🧾 Failure Details (Bug Comments)")
-
-failures_with_comments = df[
-    (df[new_status] == "Fail") &
-    df["Bug Ticket"].notna() &
-    df["Bug Comment"].notna() &
-    (df["Bug Comment"].str.strip() != "")
-]
-
-for _, row in failures_with_comments.iterrows():
-    with st.expander(f"{row['testId']} | {row['Bug Ticket']}"):
-        st.markdown(f"**Test Name:** {row['testName']}")
-        st.markdown(f"**Bug Ticket:** {row['Jira Link']}")
-        st.code(row["Bug Comment"], language="text")
 
 # =================================================
 # 🟣 Severity Pie Chart
