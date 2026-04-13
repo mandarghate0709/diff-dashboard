@@ -119,22 +119,17 @@ old_err = f"{old_rel}_{selected_market}_errors"
 new_err = f"{new_rel}_{selected_market}_errors"
 
 # =================================================
-# ✅ FIXED diff % logic
+# Diff % logic
 # =================================================
 
 def compute_diff_percent(row):
     if row[old_status] == "Pass" and row[old_err] == 0 and row[new_err] > 0:
         return np.nan
-
     if row[old_err] == 0:
         return np.nan
 
     pct = (row["diff"] / row[old_err]) * 100
-
-    if abs(pct) < 1:
-        return round(pct, 6)
-    else:
-        return round(pct, 2)
+    return round(pct, 6) if abs(pct) < 1 else round(pct, 2)
 
 df["diff_percent"] = df.apply(compute_diff_percent, axis=1)
 
@@ -204,11 +199,13 @@ styled_main = view[display_cols].style.map(color_diff, subset=["diff"])
 st.dataframe(
     styled_main,
     use_container_width=True,
-    column_config={"Jira Link": st.column_config.LinkColumn("Jira", display_text="🔗")}
+    column_config={
+        "Jira Link": st.column_config.LinkColumn("Jira", display_text="🔗")
+    }
 )
 
 # =================================================
-# 🆕 New Failures
+# 🆕 New Failures (Pass → Fail) — FIXED ✅
 # =================================================
 
 st.subheader("🆕 New Failures (Pass → Fail)")
@@ -216,15 +213,28 @@ st.subheader("🆕 New Failures (Pass → Fail)")
 nf = df[(df[old_status] == "Pass") & (df[new_status] == "Fail")].copy()
 
 nf_view = nf[
-    ["testId","testName",old_status,new_status,old_err,new_err,
-     "diff","diff_percent","Severity","Bug Ticket","Jira Link"]
+    [
+        "testId", "testName",
+        old_status, new_status,
+        old_err, new_err,
+        "diff", "diff_percent",
+        "Severity",
+        "Bug Ticket", "Jira Link"
+    ]
 ]
 
 styled_nf = nf_view.style.map(color_diff, subset=["diff"])
-st.dataframe(styled_nf, use_container_width=True)
+
+st.dataframe(
+    styled_nf,
+    use_container_width=True,
+    column_config={
+        "Jira Link": st.column_config.LinkColumn("Jira", display_text="🔗")
+    }
+)
 
 # =================================================
-# 🧾 Failure Details
+# 🧾 Failure Details (Bug Comments)
 # =================================================
 
 st.subheader("🧾 Failure Details (Bug Comments)")
@@ -262,7 +272,7 @@ st.plotly_chart(fig, use_container_width=True)
 st.subheader("ℹ️ Regression Severity Criteria")
 
 criteria_df = pd.DataFrame({
-    "Regression Type": ["Minor","Moderate","Major","Improvement","No Change"],
+    "Regression Type": ["Minor", "Moderate", "Major", "Improvement", "No Change"],
     "Diff % Criteria": [
         "0% < Diff % ≤ 5%",
         "5% < Diff % ≤ 10%",
@@ -279,6 +289,7 @@ st.table(criteria_df)
 # =================================================
 
 st.subheader("📤 Export")
+
 buffer = BytesIO()
 view[display_cols].to_excel(buffer, index=False)
 buffer.seek(0)
