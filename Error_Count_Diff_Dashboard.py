@@ -127,7 +127,6 @@ def compute_diff_percent(row):
         return np.nan
     if row[old_err] == 0:
         return np.nan
-
     pct = (row["diff"] / row[old_err]) * 100
     return round(pct, 6) if abs(pct) < 1 else round(pct, 2)
 
@@ -201,11 +200,12 @@ st.dataframe(
     use_container_width=True,
     column_config={
         "Jira Link": st.column_config.LinkColumn("Jira", display_text="🔗")
-    }
+    },
+    height=500  # ✅ scrollable
 )
 
 # =================================================
-# 🆕 New Failures (Pass → Fail) — FIXED ✅
+# 🆕 New Failures (Pass → Fail) — NOW SCROLLABLE ✅
 # =================================================
 
 st.subheader("🆕 New Failures (Pass → Fail)")
@@ -230,7 +230,8 @@ st.dataframe(
     use_container_width=True,
     column_config={
         "Jira Link": st.column_config.LinkColumn("Jira", display_text="🔗")
-    }
+    },
+    height=400  # ✅ FIX: scrollbar added
 )
 
 # =================================================
@@ -266,7 +267,7 @@ fig.update_traces(textinfo="label+percent")
 st.plotly_chart(fig, use_container_width=True)
 
 # =================================================
-# ℹ️ Criteria
+# ℹ️ Regression Severity Criteria
 # =================================================
 
 st.subheader("ℹ️ Regression Severity Criteria")
