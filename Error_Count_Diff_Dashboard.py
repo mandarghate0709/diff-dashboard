@@ -89,13 +89,8 @@ st.markdown(
     f"(Market: **{selected_market}**)"
 )
 
-# =================================================
-# Ensure Bug Ticket / Bug Comment columns exist
-# =================================================
-
 if "Bug Ticket" not in df.columns:
     df["Bug Ticket"] = np.nan
-
 if "Bug Comment" not in df.columns:
     df["Bug Comment"] = np.nan
 
@@ -115,7 +110,7 @@ def ticket_to_url(val):
 df["Jira Link"] = df["Bug Ticket"].apply(ticket_to_url)
 
 # =================================================
-# Bind OLD / NEW status & error columns
+# Bind status / error columns
 # =================================================
 
 old_status = f"{old_rel}_{selected_market}"
@@ -124,15 +119,22 @@ old_err = f"{old_rel}_{selected_market}_errors"
 new_err = f"{new_rel}_{selected_market}_errors"
 
 # =================================================
-# Diff % logic
+# ✅ FIXED diff % logic
 # =================================================
 
 def compute_diff_percent(row):
     if row[old_status] == "Pass" and row[old_err] == 0 and row[new_err] > 0:
         return np.nan
-    if row[old_err] != 0:
-        return round((row["diff"] / row[old_err]) * 100, 2)
-    return np.nan
+
+    if row[old_err] == 0:
+        return np.nan
+
+    pct = (row["diff"] / row[old_err]) * 100
+
+    if abs(pct) < 1:
+        return round(pct, 6)
+    else:
+        return round(pct, 2)
 
 df["diff_percent"] = df.apply(compute_diff_percent, axis=1)
 
@@ -160,7 +162,6 @@ df["Severity"] = df["diff_percent"].apply(classify_severity)
 # =================================================
 
 st.subheader("📦 Summary")
-
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Total Tests", len(df))
 c2.metric("Regressions", (df["diff"] > 0).sum())
@@ -168,7 +169,7 @@ c3.metric("Improvements", (df["diff"] < 0).sum())
 c4.metric("No Change", (df["diff"] == 0).sum())
 
 # =================================================
-# Global filters
+# Filters
 # =================================================
 
 view = df.copy()
@@ -197,68 +198,33 @@ def color_diff(val):
         return "background-color:#C6EFCE"
     return ""
 
-display_cols = [c for c in view.columns if c not in ["Bug Comment"]]
-
+display_cols = [c for c in view.columns if c != "Bug Comment"]
 styled_main = view[display_cols].style.map(color_diff, subset=["diff"])
 
 st.dataframe(
     styled_main,
     use_container_width=True,
-    column_config={
-        "Jira Link": st.column_config.LinkColumn("Jira", display_text="🔗")
-    }
+    column_config={"Jira Link": st.column_config.LinkColumn("Jira", display_text="🔗")}
 )
 
 # =================================================
-# 🆕 New Failures (Pass → Fail)
+# 🆕 New Failures
 # =================================================
 
 st.subheader("🆕 New Failures (Pass → Fail)")
 
-nf = df[
-    (df[old_status] == "Pass") &
-    (df[new_status] == "Fail")
-].copy()
-
-if view_mode == "Only Regressions":
-    nf = nf[nf["diff"] > 0]
-elif view_mode == "Only Improvements":
-    nf = nf[nf["diff"] < 0]
-
-if search_text:
-    nf = nf[
-        nf["testId"].str.contains(search_text, case=False, na=False) |
-        nf["testName"].str.contains(search_text, case=False, na=False)
-    ]
+nf = df[(df[old_status] == "Pass") & (df[new_status] == "Fail")].copy()
 
 nf_view = nf[
-    [
-        "testId",
-        "testName",
-        old_status,
-        new_status,
-        old_err,
-        new_err,
-        "diff",
-        "diff_percent",
-        "Severity",
-        "Bug Ticket",
-        "Jira Link",
-    ]
+    ["testId","testName",old_status,new_status,old_err,new_err,
+     "diff","diff_percent","Severity","Bug Ticket","Jira Link"]
 ]
 
 styled_nf = nf_view.style.map(color_diff, subset=["diff"])
-
-st.dataframe(
-    styled_nf,
-    use_container_width=True,
-    column_config={
-        "Jira Link": st.column_config.LinkColumn("Jira", display_text="🔗")
-    }
-)
+st.dataframe(styled_nf, use_container_width=True)
 
 # =================================================
-# 🧾 Failure Details (Bug Comments)
+# 🧾 Failure Details
 # =================================================
 
 st.subheader("🧾 Failure Details (Bug Comments)")
@@ -270,18 +236,14 @@ failures_with_comments = df[
     (df["Bug Comment"].str.strip() != "")
 ]
 
-if failures_with_comments.empty:
-    st.info("No Bug Comments available for failing tests.")
-else:
-    for _, row in failures_with_comments.iterrows():
-        with st.expander(f"{row['testId']} | {row['Bug Ticket']}"):
-            st.markdown(f"**Test Name:** {row['testName']}")
-            st.markdown(f"**Bug Ticket:** {row['Jira Link']}")
-            st.markdown("**🔍 Bug Comment:**")
-            st.code(row["Bug Comment"], language="text")
+for _, row in failures_with_comments.iterrows():
+    with st.expander(f"{row['testId']} | {row['Bug Ticket']}"):
+        st.markdown(f"**Test Name:** {row['testName']}")
+        st.markdown(f"**Bug Ticket:** {row['Jira Link']}")
+        st.code(row["Bug Comment"], language="text")
 
 # =================================================
-# 🟣 Severity Pie Chart (RESTORED ✅)
+# 🟣 Severity Pie Chart
 # =================================================
 
 st.subheader("🟣 Severity Distribution")
@@ -294,19 +256,13 @@ fig.update_traces(textinfo="label+percent")
 st.plotly_chart(fig, use_container_width=True)
 
 # =================================================
-# ℹ️ Regression Severity Criteria
+# ℹ️ Criteria
 # =================================================
 
 st.subheader("ℹ️ Regression Severity Criteria")
 
 criteria_df = pd.DataFrame({
-    "Regression Type": [
-        "Minor Regression",
-        "Moderate Regression",
-        "Major Regression",
-        "Improvement",
-        "No Change"
-    ],
+    "Regression Type": ["Minor","Moderate","Major","Improvement","No Change"],
     "Diff % Criteria": [
         "0% < Diff % ≤ 5%",
         "5% < Diff % ≤ 10%",
@@ -323,7 +279,6 @@ st.table(criteria_df)
 # =================================================
 
 st.subheader("📤 Export")
-
 buffer = BytesIO()
 view[display_cols].to_excel(buffer, index=False)
 buffer.seek(0)
