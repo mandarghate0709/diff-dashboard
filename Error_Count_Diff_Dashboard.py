@@ -10,12 +10,14 @@ from io import BytesIO
 # =================================================
 # Streamlit setup
 # =================================================
+
 st.set_page_config(page_title="Error Count Diff Dashboard", layout="wide")
 st.title("📊 Error Count Diff Dashboard")
 
 # =================================================
 # Base folder
 # =================================================
+
 BASE_PATH = "data"
 files = glob.glob(os.path.join(BASE_PATH, "*.xlsx"))
 
@@ -26,6 +28,7 @@ if not files:
 # =================================================
 # Filename helpers
 # =================================================
+
 def extract_market(filename: str) -> str:
     return os.path.basename(filename).replace(".xlsx", "").split("_")[-1]
 
@@ -40,24 +43,44 @@ def clean_report_name(filename: str) -> str:
 # =================================================
 # Market → Report mapping
 # =================================================
+
 market_map = {}
 for f in files:
     market = extract_market(f)
     market_map.setdefault(market, {})[clean_report_name(f)] = f
 
 # =================================================
-# Sidebar
+# Sidebar controls
 # =================================================
-selected_market = st.sidebar.selectbox("Select Market", sorted(market_map.keys()))
-selected_report = st.sidebar.selectbox("Select Report", sorted(market_map[selected_market].keys()))
-view_mode = st.sidebar.radio("Show", ["All Tests", "Only Regressions", "Only Improvements"])
-search_text = st.sidebar.text_input("🔎 Search Test ID / Name")
+
+st.sidebar.header("📁 Select Report")
+
+selected_market = st.sidebar.selectbox(
+    "Select Market",
+    sorted(market_map.keys())
+)
+
+selected_report = st.sidebar.selectbox(
+    "Select Report",
+    sorted(market_map[selected_market].keys())
+)
+
+view_mode = st.sidebar.radio(
+    "Show",
+    ["All Tests", "Only Regressions", "Only Improvements"]
+)
+
+search_text = st.sidebar.text_input(
+    "🔎 Search Test ID / Name",
+    placeholder="Type testId or test name..."
+)
 
 selected_file = market_map[selected_market][selected_report]
 
 # =================================================
 # Load report
 # =================================================
+
 df = pd.read_excel(selected_file)
 old_rel, new_rel = extract_releases(selected_file)
 
@@ -72,8 +95,9 @@ if "Bug Comment" not in df.columns:
     df["Bug Comment"] = np.nan
 
 # =================================================
-# Jira Link
+# Jira link column
 # =================================================
+
 JIRA_BASE = "https://here-technologies.atlassian.net/browse/"
 ticket_re = re.compile(r"(HERESUP-\d+)")
 
@@ -86,19 +110,24 @@ def ticket_to_url(val):
 df["Jira Link"] = df["Bug Ticket"].apply(ticket_to_url)
 
 # =================================================
-# Status / error columns
+# Bind status / error columns
 # =================================================
+
 old_status = f"{old_rel}_{selected_market}"
 new_status = f"{new_rel}_{selected_market}"
 old_err = f"{old_rel}_{selected_market}_errors"
 new_err = f"{new_rel}_{selected_market}_errors"
 
 # =================================================
-# diff %
+# Diff % logic
 # =================================================
+
 def compute_diff_percent(row):
+    if row[old_status] == "Pass" and row[old_err] == 0 and row[new_err] > 0:
+        return np.nan
     if row[old_err] == 0:
         return np.nan
+
     pct = (row["diff"] / row[old_err]) * 100
     return round(pct, 6) if abs(pct) < 1 else round(pct, 2)
 
@@ -107,6 +136,7 @@ df["diff_percent"] = df.apply(compute_diff_percent, axis=1)
 # =================================================
 # Severity
 # =================================================
+
 def classify_severity(p):
     if pd.isna(p):
         return "NA"
@@ -123,9 +153,22 @@ def classify_severity(p):
 df["Severity"] = df["diff_percent"].apply(classify_severity)
 
 # =================================================
+# Summary
+# =================================================
+
+st.subheader("📦 Summary")
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("Total Tests", len(df))
+c2.metric("Regressions", (df["diff"] > 0).sum())
+c3.metric("Improvements", (df["diff"] < 0).sum())
+c4.metric("No Change", (df["diff"] == 0).sum())
+
+# =================================================
 # Filters
 # =================================================
+
 view = df.copy()
+
 if view_mode == "Only Regressions":
     view = view[view["diff"] > 0]
 elif view_mode == "Only Improvements":
@@ -138,8 +181,9 @@ if search_text:
     ]
 
 # =================================================
-# Diff Table (REFERENCE BEHAVIOR)
+# Diff Table
 # =================================================
+
 st.subheader("📋 Diff Table")
 
 def color_diff(val):
@@ -150,43 +194,49 @@ def color_diff(val):
     return ""
 
 display_cols = [c for c in view.columns if c != "Bug Comment"]
-
 styled_main = view[display_cols].style.map(color_diff, subset=["diff"])
+
 st.dataframe(
     styled_main,
     use_container_width=True,
-    column_config={"Jira Link": st.column_config.LinkColumn("Jira", display_text="🔗")}
+    column_config={
+        "Jira Link": st.column_config.LinkColumn("Jira", display_text="🔗")
+    }
 )
 
 # =================================================
-# ✅ New Failures — EXACT same structure as Diff Table
+# 🆕 New Failures (Pass → Fail) — FIXED ✅
 # =================================================
+
 st.subheader("🆕 New Failures (Pass → Fail)")
 
-nf = df[(df[old_status] == "Pass") & (df[new_status] == "Fail")]
+nf = df[(df[old_status] == "Pass") & (df[new_status] == "Fail")].copy()
 
 nf_view = nf[
     [
-        "testId","testName",
-        old_status,new_status,
-        old_err,new_err,
-        "diff","diff_percent",
-        "Severity","Bug Ticket","Jira Link"
+        "testId", "testName",
+        old_status, new_status,
+        old_err, new_err,
+        "diff", "diff_percent",
+        "Severity",
+        "Bug Ticket", "Jira Link"
     ]
 ]
 
 styled_nf = nf_view.style.map(color_diff, subset=["diff"])
 
-# ✅ THIS is the critical fix
 st.dataframe(
     styled_nf,
-    use_container_width=False,
-    column_config={"Jira Link": st.column_config.LinkColumn("Jira", display_text="🔗")}
+    use_container_width=True,
+    column_config={
+        "Jira Link": st.column_config.LinkColumn("Jira", display_text="🔗")
+    }
 )
 
 # =================================================
-# Bug Comments — REAPPEARS AUTOMATICALLY
+# 🧾 Failure Details (Bug Comments)
 # =================================================
+
 st.subheader("🧾 Failure Details (Bug Comments)")
 
 failures_with_comments = df[
@@ -203,9 +253,11 @@ for _, row in failures_with_comments.iterrows():
         st.code(row["Bug Comment"], language="text")
 
 # =================================================
-# Pie Chart
+# 🟣 Severity Pie Chart
 # =================================================
+
 st.subheader("🟣 Severity Distribution")
+
 sev_counts = df["Severity"].value_counts().reset_index()
 sev_counts.columns = ["Severity", "Count"]
 
@@ -214,9 +266,30 @@ fig.update_traces(textinfo="label+percent")
 st.plotly_chart(fig, use_container_width=True)
 
 # =================================================
+# ℹ️ Criteria
+# =================================================
+
+st.subheader("ℹ️ Regression Severity Criteria")
+
+criteria_df = pd.DataFrame({
+    "Regression Type": ["Minor", "Moderate", "Major", "Improvement", "No Change"],
+    "Diff % Criteria": [
+        "0% < Diff % ≤ 5%",
+        "5% < Diff % ≤ 10%",
+        "Diff % > 10%",
+        "Diff % < 0",
+        "Diff % = 0"
+    ]
+})
+
+st.table(criteria_df)
+
+# =================================================
 # Export
 # =================================================
+
 st.subheader("📤 Export")
+
 buffer = BytesIO()
 view[display_cols].to_excel(buffer, index=False)
 buffer.seek(0)
