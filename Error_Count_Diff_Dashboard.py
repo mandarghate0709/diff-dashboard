@@ -10,14 +10,12 @@ from io import BytesIO
 # =================================================
 # Streamlit setup
 # =================================================
-
 st.set_page_config(page_title="Error Count Diff Dashboard", layout="wide")
 st.title("📊 Error Count Diff Dashboard")
 
 # =================================================
 # Base folder
 # =================================================
-
 BASE_PATH = "data"
 files = glob.glob(os.path.join(BASE_PATH, "*.xlsx"))
 
@@ -28,7 +26,6 @@ if not files:
 # =================================================
 # Filename helpers
 # =================================================
-
 def extract_market(filename: str) -> str:
     return os.path.basename(filename).replace(".xlsx", "").split("_")[-1]
 
@@ -43,24 +40,16 @@ def clean_report_name(filename: str) -> str:
 # =================================================
 # Market → Report mapping
 # =================================================
-
 market_map = {}
 for f in files:
     market = extract_market(f)
     market_map.setdefault(market, {})[clean_report_name(f)] = f
 
 # =================================================
-# Sidebar controls
+# Sidebar
 # =================================================
-
-st.sidebar.header("📁 Select Report")
-
 selected_market = st.sidebar.selectbox("Select Market", sorted(market_map.keys()))
-selected_report = st.sidebar.selectbox(
-    "Select Report",
-    sorted(market_map[selected_market].keys())
-)
-
+selected_report = st.sidebar.selectbox("Select Report", sorted(market_map[selected_market].keys()))
 view_mode = st.sidebar.radio("Show", ["All Tests", "Only Regressions", "Only Improvements"])
 search_text = st.sidebar.text_input("🔎 Search Test ID / Name")
 
@@ -69,7 +58,6 @@ selected_file = market_map[selected_market][selected_report]
 # =================================================
 # Load report
 # =================================================
-
 df = pd.read_excel(selected_file)
 old_rel, new_rel = extract_releases(selected_file)
 
@@ -84,9 +72,8 @@ if "Bug Comment" not in df.columns:
     df["Bug Comment"] = np.nan
 
 # =================================================
-# Jira link column
+# Jira Link
 # =================================================
-
 JIRA_BASE = "https://here-technologies.atlassian.net/browse/"
 ticket_re = re.compile(r"(HERESUP-\d+)")
 
@@ -99,21 +86,17 @@ def ticket_to_url(val):
 df["Jira Link"] = df["Bug Ticket"].apply(ticket_to_url)
 
 # =================================================
-# Bind status / error columns
+# Status / error columns
 # =================================================
-
 old_status = f"{old_rel}_{selected_market}"
 new_status = f"{new_rel}_{selected_market}"
 old_err = f"{old_rel}_{selected_market}_errors"
 new_err = f"{new_rel}_{selected_market}_errors"
 
 # =================================================
-# Diff % logic
+# diff %
 # =================================================
-
 def compute_diff_percent(row):
-    if row[old_status] == "Pass" and row[old_err] == 0 and row[new_err] > 0:
-        return np.nan
     if row[old_err] == 0:
         return np.nan
     pct = (row["diff"] / row[old_err]) * 100
@@ -124,7 +107,6 @@ df["diff_percent"] = df.apply(compute_diff_percent, axis=1)
 # =================================================
 # Severity
 # =================================================
-
 def classify_severity(p):
     if pd.isna(p):
         return "NA"
@@ -143,7 +125,6 @@ df["Severity"] = df["diff_percent"].apply(classify_severity)
 # =================================================
 # Filters
 # =================================================
-
 view = df.copy()
 if view_mode == "Only Regressions":
     view = view[view["diff"] > 0]
@@ -157,9 +138,8 @@ if search_text:
     ]
 
 # =================================================
-# Diff Table (auto horizontal scroll)
+# Diff Table (REFERENCE BEHAVIOR)
 # =================================================
-
 st.subheader("📋 Diff Table")
 
 def color_diff(val):
@@ -170,8 +150,8 @@ def color_diff(val):
     return ""
 
 display_cols = [c for c in view.columns if c != "Bug Comment"]
-styled_main = view[display_cols].style.map(color_diff, subset=["diff"])
 
+styled_main = view[display_cols].style.map(color_diff, subset=["diff"])
 st.dataframe(
     styled_main,
     use_container_width=True,
@@ -179,38 +159,53 @@ st.dataframe(
 )
 
 # =================================================
-# 🆕 New Failures (Pass → Fail) ✅ FIXED
+# ✅ New Failures — EXACT same structure as Diff Table
 # =================================================
-
 st.subheader("🆕 New Failures (Pass → Fail)")
 
-nf = df[(df[old_status] == "Pass") & (df[new_status] == "Fail")].copy()
+nf = df[(df[old_status] == "Pass") & (df[new_status] == "Fail")]
 
 nf_view = nf[
     [
-        "testId", "testName",
-        old_status, new_status,
-        old_err, new_err,
-        "diff", "diff_percent",
-        "Severity", "Bug Ticket", "Jira Link"
+        "testId","testName",
+        old_status,new_status,
+        old_err,new_err,
+        "diff","diff_percent",
+        "Severity","Bug Ticket","Jira Link"
     ]
 ]
 
 styled_nf = nf_view.style.map(color_diff, subset=["diff"])
 
-# ✅ KEY FIX: do NOT force container width
+# ✅ THIS is the critical fix
 st.dataframe(
     styled_nf,
-    use_container_width=False,   # <-- THIS enables horizontal scrolling
+    use_container_width=False,
     column_config={"Jira Link": st.column_config.LinkColumn("Jira", display_text="🔗")}
 )
 
 # =================================================
-# 🟣 Severity Pie Chart
+# Bug Comments — REAPPEARS AUTOMATICALLY
 # =================================================
+st.subheader("🧾 Failure Details (Bug Comments)")
 
+failures_with_comments = df[
+    (df[new_status] == "Fail") &
+    df["Bug Ticket"].notna() &
+    df["Bug Comment"].notna() &
+    (df["Bug Comment"].str.strip() != "")
+]
+
+for _, row in failures_with_comments.iterrows():
+    with st.expander(f"{row['testId']} | {row['Bug Ticket']}"):
+        st.markdown(f"**Test Name:** {row['testName']}")
+        st.markdown(f"**Bug Ticket:** {row['Jira Link']}")
+        st.code(row["Bug Comment"], language="text")
+
+# =================================================
+# Pie Chart
+# =================================================
 st.subheader("🟣 Severity Distribution")
-
 sev_counts = df["Severity"].value_counts().reset_index()
 sev_counts.columns = ["Severity", "Count"]
 
@@ -219,30 +214,9 @@ fig.update_traces(textinfo="label+percent")
 st.plotly_chart(fig, use_container_width=True)
 
 # =================================================
-# ℹ️ Regression Severity Criteria
-# =================================================
-
-st.subheader("ℹ️ Regression Severity Criteria")
-
-criteria_df = pd.DataFrame({
-    "Regression Type": ["Minor", "Moderate", "Major", "Improvement", "No Change"],
-    "Diff % Criteria": [
-        "0% < Diff % ≤ 5%",
-        "5% < Diff % ≤ 10%",
-        "Diff % > 10%",
-        "Diff % < 0",
-        "Diff % = 0"
-    ]
-})
-
-st.table(criteria_df)
-
-# =================================================
 # Export
 # =================================================
-
 st.subheader("📤 Export")
-
 buffer = BytesIO()
 view[display_cols].to_excel(buffer, index=False)
 buffer.seek(0)
